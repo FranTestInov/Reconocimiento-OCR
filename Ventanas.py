@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Created on Sat Apr 19 20:26:29 2025
-
+Modulo donde se crean todas las ventanas
 @author: paco2
 """
 

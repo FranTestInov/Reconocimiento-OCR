@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Created on Thu Mar 13 22:42:12 2025
-
+Funciones adicionales
 @author: paco2
 """
 import numpy as np

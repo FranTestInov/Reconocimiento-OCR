@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Created on Sat Apr 19 19:20:35 2025
-
+Creación y entrenamiento del modelo
 @author: paco2
 """
 #Imports
