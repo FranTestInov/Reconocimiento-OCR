@@ -30,10 +30,10 @@ class Config:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     MODEL_PATH = os.path.join(BASE_DIR, 'my_model.keras')
     #MODEL_PATH = 'my_model.keras'
-    ROI_INITIAL_X = 250
-    ROI_INITIAL_Y = 200
-    ROI_WIDTH = 50
-    ROI_HEIGHT = 100
+    BIG_ROI_INITIAL_X = 150
+    BIG_ROI_INITIAL_Y = 240
+    BIG_ROI_INITIAL_W = 200
+    BIG_ROI_INITIAL_H = 120
     PREDICTION_IMG_SIZE = (28, 28)
 
 # 3. CLASE PRINCIPAL DE LA APLICACIÓN
@@ -57,8 +57,10 @@ class CalibratorApp:
             
         # Estado de la aplicación
         self.threshold_value = 150
-        self.roi_x = self.config.ROI_INITIAL_X
-        self.roi_y = self.config.ROI_INITIAL_Y
+        self.big_roi_x = self.config.BIG_ROI_INITIAL_X
+        self.big_roi_y = self.config.BIG_ROI_INITIAL_Y
+        self.big_roi_w = self.config.BIG_ROI_INITIAL_W
+        self.big_roi_h = self.config.BIG_ROI_INITIAL_H
         
         # Inicialización de la UI
         self._setup_ui()
@@ -162,37 +164,54 @@ class CalibratorApp:
                 break # Salir si se presiona 'q'
 
             # Procesar el frame y realizar la predicción
-            predicted_digit = self._process_frame_and_predict(frame)
+            predicted_value  = self._process_frame (frame)
 
             # Actualizar y mostrar las ventanas
-            self._update_display(frame, predicted_digit)
+            self._update_display(frame, predicted_value)
 
         # Limpiar recursos al salir del bucle
         self.cleanup()
-
-    def _process_frame_and_predict(self, frame):
-        """Toma un frame, extrae la ROI, la procesa y devuelve la predicción."""
-        gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        _, thr_frame = cv2.threshold(gray_frame, self.threshold_value, 255, cv2.THRESH_BINARY_INV)
         
-        # Extraer la ROI para el dígito
-        # Nota: La lógica de recorte fijo sigue aquí. El siguiente paso sería reemplazarla por findContours.
-        x, y = self.roi_x, self.roi_y
-        w, h = self.config.ROI_WIDTH, self.config.ROI_HEIGHT
-        digit_roi = thr_frame[y:y+h, x:x+w]
+    def _process_frame (self, frame):
+        """Encuentra, ordena y predice dígitos usando la ROI dinámica de la instancia."""
+ 
+        # 1. Usa los atributos de la instancia (self) en lugar de variables locales
+        x, y, w, h = self.big_roi_x, self.big_roi_y, self.big_roi_w, self.big_roi_h
+         
+        # Dibuja el rectángulo de la ROI grande
+        cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 1)
+         
+        # Recorta la ROI grande del frame original
+        roi_grande = frame[y:y+h, x:x+w]
+         
+        # Procesa la ROI
+        gray_roi = cv2.cvtColor(roi_grande, cv2.COLOR_BGR2GRAY)
+        _, thr_roi = cv2.threshold(gray_roi, self.threshold_value, 255, cv2.THRESH_BINARY_INV)
+         
+        # --- El resto de la lógica de findContours es la misma ---
+        contours, _ = cv2.findContours(thr_roi, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+         
+        # Filtrar y ordenar contornos
+        filtered_contours = [c for c in contours if 100 < cv2.contourArea(c) < 5000]
+        sorted_contours = sorted(filtered_contours, key=lambda c: cv2.boundingRect(c)[0])
         
-        # Dibujar el rectángulo de la ROI en el frame original para visualización
-        cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-        
-        # Predicción
-        if digit_roi.size > 0:
-            preprocessed_img = cv2.resize(digit_roi, self.config.PREDICTION_IMG_SIZE)
-            imgs_to_predict = np.array([preprocessed_img])
-            prediction_result = self.model.predict(imgs_to_predict)
-            predicted_digit = str(np.argmax(prediction_result))
-            return predicted_digit
-        
-        return "?" # Retornar un valor por defecto si no se pudo predecir
+        predicted_digits = []
+        for c in sorted_contours:
+            cx, cy, cw, ch = cv2.boundingRect(c)
+            digit_roi = thr_roi[cy:cy+ch, cx:cx+cw]
+             
+            # Dibuja el rectángulo del dígito encontrado (coordenadas relativas a la ventana principal)
+            cv2.rectangle(frame, (x + cx, y + cy), (x + cx + cw, y + cy + ch), (0, 255, 0), 2)
+             
+            if digit_roi.size > 0:
+                preprocessed_img = cv2.resize(digit_roi, self.config.PREDICTION_IMG_SIZE)
+                imgs_to_predict = np.array([preprocessed_img])
+                prediction_result = self.model.predict(imgs_to_predict, verbose=0)
+                predicted_digit = str(np.argmax(prediction_result))
+                predicted_digits.append(predicted_digit)
+                 
+        final_number = "".join(predicted_digits) if predicted_digits else "N/A"
+        return final_number    
 
     def _handle_keyboard_input(self, key):
         """Maneja las teclas presionadas por el usuario. Devuelve True si se debe salir."""
@@ -203,14 +222,26 @@ class CalibratorApp:
         elif key == ord('2'):
             print("Opción 2: Definir concentración (lógica no implementada)")
         # Ejemplo de cómo cambiar la ROI dinámicamente
-        elif key == ord('j'):
-            self.roi_x -= 5
-        elif key == ord('l'):
-            self.roi_x += 5
-        elif key == ord('i'):
-            self.roi_y -= 5
-        elif key == ord('k'):
-            self.roi_y += 5
+        # elif key == ord('j'):
+        #     self.roi_x -= 5
+        # elif key == ord('l'):
+        #     self.roi_x += 5
+        # elif key == ord('i'):
+        #     self.roi_y -= 5
+        # elif key == ord('k'):
+        #     self.roi_y += 5
+            
+        # Mover la ROI
+        if key == ord('w'): self.big_roi_y -= 5
+        if key == ord('s'): self.big_roi_y += 5
+        if key == ord('a'): self.big_roi_x -= 5
+        if key == ord('d'): self.big_roi_x += 5
+        
+        # Redimensionar la ROI
+        if key == ord('e'): self.big_roi_w += 5 # Agrandar ancho
+        if key == ord('r'): self.big_roi_h += 5 # Agrandar alto
+        if key == ord('c'): self.big_roi_w -= 5 # Achicar ancho
+        if key == ord('v'): self.big_roi_h -= 5 # Achicar alto
             
         return False
 
