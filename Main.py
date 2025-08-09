@@ -9,7 +9,9 @@ Versión del calibrador automático utilizando Tesseract OCR.
 import cv2
 import numpy as np
 import os
-import pytesseract 
+import pytesseract
+import serial
+import time 
 
 # 2. CONFIGURACIÓN
 # Esta línea obtiene la ruta absoluta de la CARPETA donde se encuentra este script
@@ -19,6 +21,9 @@ class Config:
     """Valores iniciales y de configuración para la aplicación."""
     WINDOW_NAME_CAM = 'Camara'
     WINDOW_NAME_MENU = 'Menu'
+    
+    SERIAL_PORT = 'COM3'
+    BAUD_RATE = 115200
     
     # --- ¡MUY IMPORTANTE! ---
     # Pytesseract necesita saber dónde está el programa Tesseract.exe.
@@ -59,6 +64,19 @@ class CalibratorApp:
             # Podríamos decidir salir si Tesseract no funciona
             # return
 
+        self.ser = None # Inicializamos como None
+        try:
+            # Intentamos abrir el puerto serial definido en la configuración
+            self.ser = serial.Serial(self.config.SERIAL_PORT, self.config.BAUD_RATE, timeout=1)
+            time.sleep(2) # Damos tiempo al puerto para que se establezca la conexión
+            print(f"Puerto serial {self.config.SERIAL_PORT} conectado exitosamente.")
+        except serial.SerialException as e:
+            print("--- ERROR SERIAL ---")
+            print(f"No se pudo abrir el puerto {self.config.SERIAL_PORT}. ¿Está conectado el ESP32?")
+            print(f"Error original: {e}")
+            print("La aplicación continuará sin comunicación serial.")
+            print("--------------------")
+            
         # Abre la cámara
         self.cap = cv2.VideoCapture(0)
         if not self.cap.isOpened():
@@ -70,7 +88,7 @@ class CalibratorApp:
         self.big_roi_w = self.config.BIG_ROI_INITIAL_W
         self.big_roi_h = self.config.BIG_ROI_INITIAL_H
         
-        # Otros estados
+        # Threshold - Valor default
         self.threshold_value = 150
         
         # Inicialización de la UI
@@ -82,29 +100,10 @@ class CalibratorApp:
         cv2.createTrackbar('Threshold', self.config.WINDOW_NAME_CAM, self.threshold_value, 255, self._on_threshold_change)
         self.menu_image = self._create_menu_image()
         cv2.imshow(self.config.WINDOW_NAME_MENU, self.menu_image)
-        
-    def run(self):
-        """Bucle principal de la aplicación."""
-        print("Iniciando bucle principal...")
-        while True:
-            ret, frame = self.cap.read()
-            if not ret:
-                print("Error al capturar el frame. Saliendo.")
-                break
-
-            key = cv2.waitKey(1) & 0xFF
-            if self._handle_keyboard_input(key):
-                break 
-
-            # Ahora el procesamiento y la predicción ocurren en el mismo lugar.
-            predicted_value = self._process_frame_and_read_text(frame)
-
-            self._update_display(frame, predicted_value)
-
-        self.cleanup()
-
+       
     def _process_frame_and_read_text(self, frame):
-        """Encuentra, ordena y lee los dígitos usando Tesseract."""
+        """Encuentra, lee, valida y ahora también visualiza las etapas de procesamiento."""
+        # --- 1. Definición y procesamiento de la ROI grande ---
         x, y, w, h = self.big_roi_x, self.big_roi_y, self.big_roi_w, self.big_roi_h
         cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 1)
         
@@ -119,14 +118,50 @@ class CalibratorApp:
         # --oem 3: Motor por defecto.
         # --psm 6: Asumir un único bloque de texto uniforme. Es bueno para displays.
         # -c tessedit_char_whitelist: Le decimos que solo busque estos caracteres.
-        custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789.'
+        custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789'
         
         # Llamamos a Tesseract para que lea el texto de nuestra ROI procesada (thr_roi)
-        text = pytesseract.image_to_string(thr_roi, config=custom_config)
+        raw_text = pytesseract.image_to_string(thr_roi, config=custom_config)
         
-        # Limpiamos el resultado (Tesseract a veces añade saltos de línea o espacios)
-        final_number = text.strip()
+        validated_text = self._validate_vaisala_reading(raw_text)
         
+        if validated_text is not None:
+            # Si la validación fue exitosa, usamos el texto limpio.
+            final_number = validated_text
+        else:
+            # Si la validación falla, lo indicamos en la pantalla.
+            final_number = "Invalido" 
+        
+        # Definimos un tamaño fijo para nuestras ventanas de depuración
+        debug_w, debug_h = 160, 80
+       
+        # Redimensionamos las imágenes de la ROI (escala de grises y threshold)
+        gray_debug = cv2.resize(gray_roi, (debug_w, debug_h))
+        thr_debug = cv2.resize(thr_roi, (debug_w, debug_h))
+       
+        # Las convertimos a formato BGR (3 canales) para poder pegarlas en el frame de color
+        gray_debug_bgr = cv2.cvtColor(gray_debug, cv2.COLOR_GRAY2BGR)
+        thr_debug_bgr = cv2.cvtColor(thr_debug, cv2.COLOR_GRAY2BGR)
+       
+        # Obtenemos las dimensiones del frame principal para posicionar las vistas abajo a la derecha
+        frame_h, frame_w, _ = frame.shape
+       
+        # Coordenadas para la vista "Escala de Grises"
+        y_start1 = frame_h - debug_h - 10
+        x_start1 = frame_w - (debug_w * 2) - 15
+       
+        # Coordenadas para la vista "Threshold"
+        y_start2 = frame_h - debug_h - 10
+        x_start2 = frame_w - debug_w - 10
+        
+        # "Pegamos" las imágenes de depuración en el frame principal
+        frame[y_start1 : y_start1 + debug_h, x_start1 : x_start1 + debug_w] = gray_debug_bgr
+        frame[y_start2 : y_start2 + debug_h, x_start2 : x_start2 + debug_w] = thr_debug_bgr
+        
+        # Añadimos texto para identificar cada vista
+        cv2.putText(frame, "Grises", (x_start1, y_start1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        cv2.putText(frame, "Threshold", (x_start2, y_start2 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+     
         return final_number
 
     def _handle_keyboard_input(self, key):
@@ -140,20 +175,20 @@ class CalibratorApp:
         if key == ord('r'): self.big_roi_h += 5
         if key == ord('c'): self.big_roi_w -= 5
         if key == ord('v'): self.big_roi_h -= 5
+        if key == ord('1'):
+            self.send_command("V1_ON") # Enciende la válvula 1
+            print("Se Mando a abrir una electrovalvula")
+        elif key == ord('2'):
+            self.send_command("V1_OFF") # Apaga la válvula 1
+            print("Se Mando a cerrar una electrovalvula")
         return False
-
+    
     def _update_display(self, frame, predicted_text):
         """Actualiza el menú con la nueva predicción y refresca las ventanas."""
         updated_menu = self.menu_image.copy()
         cv2.putText(updated_menu, predicted_text, (20, 210), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 2)
         cv2.imshow(self.config.WINDOW_NAME_MENU, updated_menu)
         cv2.imshow(self.config.WINDOW_NAME_CAM, frame)
-
-    def cleanup(self):
-        """Libera los recursos de la cámara y destruye las ventanas."""
-        print("Limpiando recursos y cerrando aplicación.")
-        self.cap.release()
-        cv2.destroyAllWindows()
 
     def _on_threshold_change(self, value):
         """Callback para la barra de threshold."""
@@ -168,6 +203,83 @@ class CalibratorApp:
         cv2.putText(menu, "Presione 'q' para salir", (20, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
         cv2.putText(menu, "Prediccion (Vaisala):", (20, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
         return menu
+
+    def _validate_vaisala_reading(self, raw_text):
+        """
+        Aplica las reglas de validación específicas para el display del Vaisala.
+        Devuelve el texto limpio si es válido, o None si es inválido.
+        """
+        # Limpiamos espacios en blanco al principio y al final
+        cleaned_text = raw_text.strip()
+
+        # --- Regla 1: Debe ser un número entero y nada más ---
+        # Si no es un string compuesto solo por dígitos, es inválido.
+        if not cleaned_text.isdigit():
+            print(f"VALIDACIÓN RECHAZADA: '{cleaned_text}' contiene caracteres no numéricos o está vacío.")
+            return None
+
+        # --- Regla 2: Debe tener 3 o 4 dígitos ---
+        if not (len(cleaned_text) == 3 or len(cleaned_text) == 4):
+            print(f"VALIDACIÓN RECHAZADA: '{cleaned_text}' no tiene 3 o 4 dígitos.")
+            return None
+
+        # --- Regla 3: El último dígito debe ser 0 ---
+        if not cleaned_text.endswith('0'):
+            print(f"VALIDACIÓN RECHAZADA: '{cleaned_text}' no termina en 0.")
+            return None
+
+        # Si el texto pasó todas las reglas, es una lectura válida.
+        print(f"VALIDACIÓN ACEPTADA: '{cleaned_text}'")
+        return cleaned_text
+    
+    def send_command(self, command):
+        """
+        Añade un salto de línea al final para que el ESP32 sepa cuándo termina el comando.
+        """
+        if self.ser and self.ser.is_open:
+            # Codificamos el string a bytes y lo enviamos
+            self.ser.write(f"{command}\n".encode('utf-8'))
+            print(f"Comando enviado al ESP32: {command}")
+        else:
+            print("Error: El puerto serial no está disponible. No se envió el comando.")
+        
+    def cleanup(self):
+        """
+        Libera los recursos de la cámara y destruye las ventanas.
+        Cierra la conexión serial.
+        """
+        print("Limpiando recursos y cerrando aplicación.")
+        self.cap.release()
+        cv2.destroyAllWindows()
+        if self.ser and self.ser.is_open:
+            self.ser.close()
+            print("Puerto serial cerrado.")
+
+    def run(self):
+        """Bucle principal de la aplicación."""
+        print("Iniciando bucle principal...")
+        while True:
+            ret, frame = self.cap.read()
+            if not ret:
+                print("Error al capturar el frame. Saliendo.")
+                break
+
+            key = cv2.waitKey(1) & 0xFF
+            if self._handle_keyboard_input(key):
+                break #Presiona Q para salir
+            
+            if self.ser and self.ser.in_waiting > 0:
+                # Leemos una línea que llega desde el ESP32
+                response = self.ser.readline().decode('utf-8', errors='ignore').strip()
+                if response: # Si la respuesta no está vacía
+                    print(f"Respuesta del ESP32: {response}")
+
+            # Ahora el procesamiento y la predicción ocurren en el mismo lugar.
+            predicted_value = self._process_frame_and_read_text(frame)
+
+            self._update_display(frame, predicted_value)
+
+        self.cleanup()
 
 # 4. FUNCIÓN MAIN
 def main():
