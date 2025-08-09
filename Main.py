@@ -11,7 +11,9 @@ import numpy as np
 import os
 import pytesseract
 import serial
-import time 
+import time
+from collections import Counter
+ 
 
 # 2. CONFIGURACIÓN
 # Esta línea obtiene la ruta absoluta de la CARPETA donde se encuentra este script
@@ -36,6 +38,11 @@ class Config:
     BIG_ROI_INITIAL_Y = 240
     BIG_ROI_INITIAL_W = 200
     BIG_ROI_INITIAL_H = 120
+    # Tamaño del búfer: cuántas lecturas válidas recientes vamos a almacenar.
+    READING_BUFFER_SIZE = 15
+    # Umbral de confianza: qué porcentaje de las lecturas en el búfer deben ser
+    # iguales para considerar el valor como "estable". (0.6 = 60%)
+    CONFIDENCE_THRESHOLD = 0.6
 
 # 3. CLASE PRINCIPAL DE LA APLICACIÓN
 class CalibratorApp:
@@ -91,6 +98,11 @@ class CalibratorApp:
         # Threshold - Valor default
         self.threshold_value = 150
         
+        # Un búfer (lista) para almacenar las últimas lecturas válidas.
+        self.readings_buffer = []
+        # El último valor que consideramos estable y que se muestra en el menú.
+        self.stable_reading = "---" # Valor inicial
+        
         # Inicialización de la UI
         self._setup_ui()
 
@@ -101,8 +113,11 @@ class CalibratorApp:
         self.menu_image = self._create_menu_image()
         cv2.imshow(self.config.WINDOW_NAME_MENU, self.menu_image)
        
-    def _process_frame_and_read_text(self, frame):
-        """Encuentra, lee, valida y ahora también visualiza las etapas de procesamiento."""
+    def _process_frame_and_update_buffer(self, frame):
+        """
+        Obtiene una lectura, la valida y, si es correcta, la añade al búfer.
+        Ya no devuelve un valor.
+        """
         # --- 1. Definición y procesamiento de la ROI grande ---
         x, y, w, h = self.big_roi_x, self.big_roi_y, self.big_roi_w, self.big_roi_h
         cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 1)
@@ -126,11 +141,12 @@ class CalibratorApp:
         validated_text = self._validate_vaisala_reading(raw_text)
         
         if validated_text is not None:
-            # Si la validación fue exitosa, usamos el texto limpio.
-            final_number = validated_text
-        else:
-            # Si la validación falla, lo indicamos en la pantalla.
-            final_number = "Invalido" 
+            # Si la lectura es válida, la añadimos al búfer
+            self.readings_buffer.append(validated_text)
+            
+            # Si el búfer excede el tamaño máximo, eliminamos el elemento más antiguo
+            if len(self.readings_buffer) > self.config.READING_BUFFER_SIZE:
+                self.readings_buffer.pop(0) 
         
         # Definimos un tamaño fijo para nuestras ventanas de depuración
         debug_w, debug_h = 160, 80
@@ -161,8 +177,6 @@ class CalibratorApp:
         # Añadimos texto para identificar cada vista
         cv2.putText(frame, "Grises", (x_start1, y_start1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
         cv2.putText(frame, "Threshold", (x_start2, y_start2 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-     
-        return final_number
 
     def _handle_keyboard_input(self, key):
         """Maneja las teclas para salir y para mover/redimensionar la ROI grande."""
@@ -232,6 +246,32 @@ class CalibratorApp:
         print(f"VALIDACIÓN ACEPTADA: '{cleaned_text}'")
         return cleaned_text
     
+    def _update_stable_reading(self):
+        """
+        PASO 4: Analiza el búfer de lecturas y actualiza el valor estable si hay consenso.
+        """
+        buffer_size = len(self.readings_buffer)
+        
+        # No tomamos decisiones si el búfer no está razonablemente lleno
+        # (ej. si tiene menos de la mitad de su capacidad máxima)
+        if buffer_size < self.config.READING_BUFFER_SIZE / 2:
+            return
+
+        # Contamos cuántas veces aparece cada número en el búfer
+        counts = Counter(self.readings_buffer)
+        
+        # Obtenemos el número más común y cuántas veces apareció
+        most_common = counts.most_common(1)[0]
+        candidate_value = most_common[0]
+        confidence_count = most_common[1]
+
+        # Comprobamos si la confianza (porcentaje de apariciones) supera nuestro umbral
+        if (confidence_count / buffer_size) >= self.config.CONFIDENCE_THRESHOLD:
+            # Si hay consenso y es un valor nuevo, lo actualizamos como estable
+            if self.stable_reading != candidate_value:
+                print(f"NUEVO VALOR ESTABLE: '{candidate_value}' (confianza del {confidence_count/buffer_size:.0%})")
+                self.stable_reading = candidate_value
+                
     def send_command(self, command):
         """
         Añade un salto de línea al final para que el ESP32 sepa cuándo termina el comando.
@@ -274,10 +314,15 @@ class CalibratorApp:
                 if response: # Si la respuesta no está vacía
                     print(f"Respuesta del ESP32: {response}")
 
-            # Ahora el procesamiento y la predicción ocurren en el mismo lugar.
-            predicted_value = self._process_frame_and_read_text(frame)
+            # --- NUEVO FLUJO DE PROCESAMIENTO ---
+            # 1. Procesa el frame y, si encuentra un valor válido, lo guarda en el búfer.
+            self._process_frame_and_update_buffer(frame)
+            
+            # 2. Revisa el búfer y decide si hay un nuevo valor estable.
+            self._update_stable_reading()
 
-            self._update_display(frame, predicted_value)
+            # 3. Actualiza el display siempre con el último valor estable.
+            self._update_display(frame, self.stable_reading)
 
         self.cleanup()
 
