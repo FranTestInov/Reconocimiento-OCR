@@ -71,19 +71,10 @@ class CalibratorApp:
             # Podríamos decidir salir si Tesseract no funciona
             # return
 
-        self.ser = None # Inicializamos como None
-        try:
-            # Intentamos abrir el puerto serial definido en la configuración
-            self.ser = serial.Serial(self.config.SERIAL_PORT, self.config.BAUD_RATE, timeout=1)
-            time.sleep(2) # Damos tiempo al puerto para que se establezca la conexión
-            print(f"Puerto serial {self.config.SERIAL_PORT} conectado exitosamente.")
-        except serial.SerialException as e:
-            print("--- ERROR SERIAL ---")
-            print(f"No se pudo abrir el puerto {self.config.SERIAL_PORT}. ¿Está conectado el ESP32?")
-            print(f"Error original: {e}")
-            print("La aplicación continuará sin comunicación serial.")
-            print("--------------------")
-            
+        # --- NUEVAS VARIABLES PARA LA AUTO-RECONEXIÓN ---
+        self.ser = None # El objeto serial, empieza como None
+        self.last_reconnect_attempt = 0 # Para controlar el tiempo entre intentos
+                    
         # Abre la cámara
         self.cap = cv2.VideoCapture(0)
         if not self.cap.isOpened():
@@ -114,9 +105,9 @@ class CalibratorApp:
             if self._handle_keyboard_input(key):
                 break
             
-            # --- NUEVO FLUJO LÓGICO Y CORREGIDO ---
-            # 1. Leemos datos del ESP32 y actualizamos el estado
-            self._read_and_parse_serial()
+            # --- NUEVO: GESTOR DE CONEXIÓN SERIAL ---
+            # Cada ciclo, llamamos al método que maneja la conexión.
+            self._manage_serial_connection()
             
             # 2. Esta llamada ahora recibirá correctamente un solo valor (float)
             brightness_ratio = self._process_frame_and_update_buffer(frame)
@@ -128,6 +119,40 @@ class CalibratorApp:
             self._update_display(frame, self.stable_reading, brightness_ratio)
     
         self.cleanup()
+
+    def _manage_serial_connection(self):
+        """
+        NUEVO MÉTODO: Verifica el estado del puerto serial y intenta
+        conectar/reconectar cada 10 segundos si es necesario.
+        """
+        # Primero, verifica si estamos conectados
+        if self.ser and self.ser.is_open:
+            # Si estamos conectados, intentamos leer. Si falla, es que se desconectó.
+            try:
+                # Una lectura de 0 bytes no bloquea pero fuerza un error si el dispositivo se quitó
+                self.ser.read(0) 
+            except serial.SerialException:
+                print("--- CONEXIÓN SERIAL PERDIDA ---")
+                self.ser.close()
+                self.ser = None
+                self.last_reconnect_attempt = time.time() # Inicia el temporizador para reconectar
+            return # Si todo está bien, salimos del método
+
+        # Si no estamos conectados (self.ser es None o está cerrado)
+        current_time = time.time()
+        # Verificamos si pasaron 10 segundos desde el último intento
+        if current_time - self.last_reconnect_attempt > 10:
+            print(f"Intentando conectar al puerto serial {self.config.SERIAL_PORT}...")
+            self.last_reconnect_attempt = current_time # Actualizamos el tiempo del intento
+            try:
+                # Intentamos abrir el puerto
+                self.ser = serial.Serial(self.config.SERIAL_PORT, self.config.BAUD_RATE, timeout=1)
+                time.sleep(2) # Pausa para estabilizar la conexión
+                print(f"¡Puerto serial {self.config.SERIAL_PORT} conectado exitosamente!")
+            except serial.SerialException:
+                # Si falla, simplemente lo volveremos a intentar en 10 segundos.
+                print("Conexión fallida. Se reintentará...")
+                self.ser = None    
 
     def _update_display(self, frame, stable_reading, brightness_ratio):
         """Actualiza el menú con la nueva predicción y refresca las ventanas."""
