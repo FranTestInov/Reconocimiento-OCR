@@ -109,14 +109,15 @@ class CalibratorApp:
     def _setup_ui(self):
         """Configura las ventanas y los controles de OpenCV."""
         cv2.namedWindow(self.config.WINDOW_NAME_CAM)
-        cv2.createTrackbar('Threshold', self.config.WINDOW_NAME_CAM, self.threshold_value, 255, self._on_threshold_change)
+        # Para esta prueba no necesitamos la barra de threshol
+        #cv2.createTrackbar('Threshold', self.config.WINDOW_NAME_CAM, self.threshold_value, 255, self._on_threshold_change)
+        
         self.menu_image = self._create_menu_image()
         cv2.imshow(self.config.WINDOW_NAME_MENU, self.menu_image)
        
     def _process_frame_and_update_buffer(self, frame):
         """
-        Obtiene una lectura, la valida y, si es correcta, la añade al búfer.
-        Ya no devuelve un valor.
+        Ahora con auto-threshold de Otsu.
         """
         # --- 1. Definición y procesamiento de la ROI grande ---
         x, y, w, h = self.big_roi_x, self.big_roi_y, self.big_roi_w, self.big_roi_h
@@ -126,13 +127,16 @@ class CalibratorApp:
         
         roi_grande = frame[y:y+h, x:x+w]
         gray_roi = cv2.cvtColor(roi_grande, cv2.COLOR_BGR2GRAY)
-        thr_roi = cv2.threshold(gray_roi, self.threshold_value, 255, cv2.THRESH_BINARY_INV)[1]
-
-        # --- LÓGICA DE PREDICCIÓN CON TESSERACT ---
-        # Configuramos Tesseract para que funcione de la mejor manera con dígitos.
-        # --oem 3: Motor por defecto.
-        # --psm 6: Asumir un único bloque de texto uniforme. Es bueno para displays.
-        # -c tessedit_char_whitelist: Le decimos que solo busque estos caracteres.
+        
+        # En lugar de usar self.threshold_value, pasamos 0 y añadimos la bandera THRESH_OTSU.
+        # La función ahora devuelve el threshold calculado (otsu_threshold) y la imagen.
+        #thr_roi = cv2.threshold(gray_roi, self.threshold_value, 255, cv2.THRESH_BINARY_INV)[1]
+        otsu_threshold, thr_roi = cv2.threshold(gray_roi, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+       
+        # (Opcional) Imprimimos el valor que Otsu calculó para ver cómo se adapta.
+        print(f"Otsu Threshold: {otsu_threshold}")
+        # --------------------------------
+        
         custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789'
         
         # Llamamos a Tesseract para que lea el texto de nuestra ROI procesada (thr_roi)
@@ -204,9 +208,10 @@ class CalibratorApp:
         cv2.imshow(self.config.WINDOW_NAME_MENU, updated_menu)
         cv2.imshow(self.config.WINDOW_NAME_CAM, frame)
 
-    def _on_threshold_change(self, value):
-        """Callback para la barra de threshold."""
-        self.threshold_value = value
+    # Este metodo no lo vamos a utilizar
+    #def _on_threshold_change(self, value):
+    #    """Callback para la barra de threshold."""
+    #    self.threshold_value = value
         
     def _create_menu_image(self):
         """Crea la imagen base para el menú de la UI."""
