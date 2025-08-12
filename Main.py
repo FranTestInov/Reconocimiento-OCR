@@ -23,16 +23,9 @@ class Config:
     """Valores iniciales y de configuración para la aplicación."""
     WINDOW_NAME_CAM = 'Camara'
     WINDOW_NAME_MENU = 'Menu'
-    
     SERIAL_PORT = 'COM3'
     BAUD_RATE = 115200
-    
-    # --- ¡MUY IMPORTANTE! ---
-    # Pytesseract necesita saber dónde está el programa Tesseract.exe.
-    # Cambiá esta ruta para que apunte a donde lo instalaste en tu PC.
-    # La 'r' al principio es para que Python interprete la cadena de texto correctamente.
     TESSERACT_CMD = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-    
     # Valores iniciales para la ROI grande de detección
     BIG_ROI_INITIAL_X = 150
     BIG_ROI_INITIAL_Y = 240
@@ -54,6 +47,13 @@ class CalibratorApp:
         Constructor: Inicializa Tesseract, la cámara y la interfaz de usuario.
         """
         self.config = config
+        
+        # --- NUEVAS VARIABLES DE ESTADO ---
+        self.readings_buffer = []
+        self.stable_reading = "---"
+        self.sensor_data = {
+            'TEMP': '--.-', 'HUM': '--.-', 'PRES': '----'
+        }
         
         # --- Configuración de Tesseract ---
         # Le decimos a pytesseract dónde encontrar el ejecutable.
@@ -98,25 +98,74 @@ class CalibratorApp:
         # Threshold - Valor default
         self.threshold_value = 150
         
-        # Un búfer (lista) para almacenar las últimas lecturas válidas.
-        self.readings_buffer = []
-        # El último valor que consideramos estable y que se muestra en el menú.
-        self.stable_reading = "---" # Valor inicial
-        
         # Inicialización de la UI
         self._setup_ui()
+        
+    def run(self):
+        """Bucle principal con la lógica de decisión por consenso."""
+        print("Iniciando bucle principal...")
+        while True:
+            ret, frame = self.cap.read()
+            if not ret:
+                print("Error al capturar el frame. Saliendo.")
+                break
+    
+            key = cv2.waitKey(1) & 0xFF
+            if self._handle_keyboard_input(key):
+                break
+            
+            # --- NUEVO FLUJO LÓGICO Y CORREGIDO ---
+            # 1. Leemos datos del ESP32 y actualizamos el estado
+            self._read_and_parse_serial()
+            
+            # 2. Esta llamada ahora recibirá correctamente un solo valor (float)
+            brightness_ratio = self._process_frame_and_update_buffer(frame)
+            
+            # 3. Revisamos el búfer y actualizamos el valor estable
+            self._update_stable_reading()
+    
+            # 4. Actualizamos el display con el valor estable y el ratio de brillo
+            self._update_display(frame, self.stable_reading, brightness_ratio)
+    
+        self.cleanup()
 
+    def _update_display(self, frame, stable_reading, brightness_ratio):
+        """Actualiza el menú con la nueva predicción y refresca las ventanas."""
+        # Crea una copia del menú para no dibujar sobre la imagen original
+        """Actualiza el menú con todos los datos dinámicos."""
+        # Copiamos la imagen base para no re-dibujar todo cada vez
+        updated_menu = self.menu_image_base.copy()
+        
+        # --- Dibuja la Lectura OCR ---
+        cv2.putText(updated_menu, stable_reading, (50, 170), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3)
+
+        # --- Dibuja los Datos de Sensores ---
+        cv2.putText(updated_menu, "Temperatura:", (50, 260), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+        cv2.putText(updated_menu, f"{self.sensor_data['TEMP']} C", (250, 260), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        
+        cv2.putText(updated_menu, "Humedad:", (50, 290), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+        cv2.putText(updated_menu, f"{self.sensor_data['HUM']} %", (250, 290), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+        cv2.putText(updated_menu, "Presion:", (50, 320), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+        cv2.putText(updated_menu, f"{self.sensor_data['PRES']} hPa", (250, 320), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        
+        # --- Dibuja los Datos de Depuración ---
+        cv2.putText(updated_menu, "Ratio Px Blancos:", (50, 390), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+        cv2.putText(updated_menu, f"{brightness_ratio:.2%}", (250, 390), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        
+        cv2.imshow(self.config.WINDOW_NAME_MENU, updated_menu)
+        cv2.imshow(self.config.WINDOW_NAME_CAM, frame)
+        
     def _setup_ui(self):
         """Configura las ventanas y los controles de OpenCV."""
         cv2.namedWindow(self.config.WINDOW_NAME_CAM)
         cv2.createTrackbar('Threshold', self.config.WINDOW_NAME_CAM, self.threshold_value, 255, self._on_threshold_change)
-        self.menu_image = self._create_menu_image()
-        cv2.imshow(self.config.WINDOW_NAME_MENU, self.menu_image)
+        self.menu_image_base = self._create_menu_image() 
+        cv2.imshow(self.config.WINDOW_NAME_MENU, self.menu_image_base)
        
-    def _process_frame_and_update_buffer(self, frame):
+    def _process_frame_and_update_buffer (self, frame):
         """
-        Obtiene una lectura, la valida y, si es correcta, la añade al búfer.
-        Ya no devuelve un valor.
+        Procesa el frame, lee con Tesseract y devuelve el texto validado y el ratio de brillo.
         """
         # --- 1. Definición y procesamiento de la ROI grande ---
         x, y, w, h = self.big_roi_x, self.big_roi_y, self.big_roi_w, self.big_roi_h
@@ -127,23 +176,24 @@ class CalibratorApp:
         roi_grande = frame[y:y+h, x:x+w]
         gray_roi = cv2.cvtColor(roi_grande, cv2.COLOR_BGR2GRAY)
         thr_roi = cv2.threshold(gray_roi, self.threshold_value, 255, cv2.THRESH_BINARY_INV)[1]
-
-        # --- LÓGICA DE PREDICCIÓN CON TESSERACT ---
-        # Configuramos Tesseract para que funcione de la mejor manera con dígitos.
-        # --oem 3: Motor por defecto.
-        # --psm 6: Asumir un único bloque de texto uniforme. Es bueno para displays.
-        # -c tessedit_char_whitelist: Le decimos que solo busque estos caracteres.
-        custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789'
         
+        # CÁLCULO DEL RATIO DE PÍXELES BLANCOS
+        brightness_ratio = 0.0
+        if thr_roi.size > 0:
+            white_pixels = cv2.countNonZero(thr_roi)
+            brightness_ratio = white_pixels / thr_roi.size
+                    
+        # --- LÓGICA DE PREDICCIÓN CON TESSERACT ---
+        custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789'
         # Llamamos a Tesseract para que lea el texto de nuestra ROI procesada (thr_roi)
         raw_text = pytesseract.image_to_string(thr_roi, config=custom_config)
-        
+        #Validación
         validated_text = self._validate_vaisala_reading(raw_text)
         
+        # --- ACTUALIZACIÓN DEL BÚFER ---
         if validated_text is not None:
             # Si la lectura es válida, la añadimos al búfer
             self.readings_buffer.append(validated_text)
-            
             # Si el búfer excede el tamaño máximo, eliminamos el elemento más antiguo
             if len(self.readings_buffer) > self.config.READING_BUFFER_SIZE:
                 self.readings_buffer.pop(0) 
@@ -177,7 +227,9 @@ class CalibratorApp:
         # Añadimos texto para identificar cada vista
         cv2.putText(frame, "Grises", (x_start1, y_start1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
         cv2.putText(frame, "Threshold", (x_start2, y_start2 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-
+        
+        return brightness_ratio
+    
     def _handle_keyboard_input(self, key):
         """Maneja las teclas para salir y para mover/redimensionar la ROI grande."""
         if key == ord('q'): return True
@@ -197,25 +249,22 @@ class CalibratorApp:
             print("Se Mando a cerrar una electrovalvula")
         return False
     
-    def _update_display(self, frame, predicted_text):
-        """Actualiza el menú con la nueva predicción y refresca las ventanas."""
-        updated_menu = self.menu_image.copy()
-        cv2.putText(updated_menu, predicted_text, (20, 210), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 2)
-        cv2.imshow(self.config.WINDOW_NAME_MENU, updated_menu)
-        cv2.imshow(self.config.WINDOW_NAME_CAM, frame)
+    
 
     def _on_threshold_change(self, value):
         """Callback para la barra de threshold."""
         self.threshold_value = value
         
     def _create_menu_image(self):
-        """Crea la imagen base para el menú de la UI."""
-        menu = np.zeros((400, 500, 3), np.uint8)
-        cv2.putText(menu, "Menu Principal", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-        cv2.putText(menu, "Use 'a,s,w,d' para mover la ROI", (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-        cv2.putText(menu, "Use 'e,r,c,v' para el tamano", (20, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-        cv2.putText(menu, "Presione 'q' para salir", (20, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-        cv2.putText(menu, "Prediccion (Vaisala):", (20, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        """Crea la imagen base para el NUEVO menú."""
+        menu = np.zeros((480, 640, 3), np.uint8)
+        # Título
+        cv2.putText(menu, "Sistema de Calibracion Asistida", (40, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+        cv2.line(menu, (30, 70), (610, 70), (255, 255, 255), 1)
+        # Secciones
+        cv2.putText(menu, "Lectura OCR", (30, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 100), 2)
+        cv2.putText(menu, "Datos de Sensores (ESP32)", (30, 220), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 100), 2)
+        cv2.putText(menu, "Depuracion", (30, 350), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 100), 2)
         return menu
 
     def _validate_vaisala_reading(self, raw_text):
@@ -295,37 +344,22 @@ class CalibratorApp:
             self.ser.close()
             print("Puerto serial cerrado.")
 
-    def run(self):
-        """Bucle principal de la aplicación."""
-        print("Iniciando bucle principal...")
-        while True:
-            ret, frame = self.cap.read()
-            if not ret:
-                print("Error al capturar el frame. Saliendo.")
-                break
-
-            key = cv2.waitKey(1) & 0xFF
-            if self._handle_keyboard_input(key):
-                break #Presiona Q para salir
-            
-            if self.ser and self.ser.in_waiting > 0:
-                # Leemos una línea que llega desde el ESP32
+    def _read_and_parse_serial(self):
+        """Lee una línea del puerto serial y actualiza el diccionario de sensores."""
+        if self.ser and self.ser.in_waiting > 0:
+            try:
                 response = self.ser.readline().decode('utf-8', errors='ignore').strip()
-                if response: # Si la respuesta no está vacía
-                    print(f"Respuesta del ESP32: {response}")
-
-            # --- NUEVO FLUJO DE PROCESAMIENTO ---
-            # 1. Procesa el frame y, si encuentra un valor válido, lo guarda en el búfer.
-            self._process_frame_and_update_buffer(frame)
-            
-            # 2. Revisa el búfer y decide si hay un nuevo valor estable.
-            self._update_stable_reading()
-
-            # 3. Actualiza el display siempre con el último valor estable.
-            self._update_display(frame, self.stable_reading)
-
-        self.cleanup()
-
+                if response:
+                    # Parseamos el paquete de datos: "TEMP:25.3;HUM:45.1;PRES:1013.5;"
+                    pairs = response.split(';')
+                    for pair in pairs:
+                        if ':' in pair:
+                            key, value = pair.split(':')
+                            if key in self.sensor_data:
+                                self.sensor_data[key] = value
+            except Exception as e:
+                print(f"Error al leer/parsear datos serial: {e}")
+    
 # 4. FUNCIÓN MAIN
 def main():
     """Función principal que instancia y ejecuta la aplicación."""
