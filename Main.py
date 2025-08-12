@@ -32,7 +32,7 @@ class Config:
     BIG_ROI_INITIAL_W = 200
     BIG_ROI_INITIAL_H = 120
     # Tamaño del búfer: cuántas lecturas válidas recientes vamos a almacenar.
-    READING_BUFFER_SIZE = 15
+    READING_BUFFER_SIZE = 10
     # Umbral de confianza: qué porcentaje de las lecturas en el búfer deben ser
     # iguales para considerar el valor como "estable". (0.6 = 60%)
     CONFIDENCE_THRESHOLD = 0.6
@@ -108,6 +108,8 @@ class CalibratorApp:
             # --- NUEVO: GESTOR DE CONEXIÓN SERIAL ---
             # Cada ciclo, llamamos al método que maneja la conexión.
             self._manage_serial_connection()
+            
+            self._read_and_parse_serial()
             
             # 2. Esta llamada ahora recibirá correctamente un solo valor (float)
             brightness_ratio = self._process_frame_and_update_buffer(frame)
@@ -303,21 +305,21 @@ class CalibratorApp:
         # --- Regla 1: Debe ser un número entero y nada más ---
         # Si no es un string compuesto solo por dígitos, es inválido.
         if not cleaned_text.isdigit():
-            print(f"VALIDACIÓN RECHAZADA: '{cleaned_text}' contiene caracteres no numéricos o está vacío.")
+            #print(f"VALIDACIÓN RECHAZADA: '{cleaned_text}' contiene caracteres no numéricos o está vacío.")
             return None
 
         # --- Regla 2: Debe tener 3 o 4 dígitos ---
         if not (len(cleaned_text) == 3 or len(cleaned_text) == 4):
-            print(f"VALIDACIÓN RECHAZADA: '{cleaned_text}' no tiene 3 o 4 dígitos.")
+            #print(f"VALIDACIÓN RECHAZADA: '{cleaned_text}' no tiene 3 o 4 dígitos.")
             return None
 
         # --- Regla 3: El último dígito debe ser 0 ---
         if not cleaned_text.endswith('0'):
-            print(f"VALIDACIÓN RECHAZADA: '{cleaned_text}' no termina en 0.")
+            #print(f"VALIDACIÓN RECHAZADA: '{cleaned_text}' no termina en 0.")
             return None
 
         # Si el texto pasó todas las reglas, es una lectura válida.
-        print(f"VALIDACIÓN ACEPTADA: '{cleaned_text}'")
+        #print(f"VALIDACIÓN ACEPTADA: '{cleaned_text}'")
         return cleaned_text
     
     def _update_stable_reading(self):
@@ -347,15 +349,19 @@ class CalibratorApp:
                 self.stable_reading = candidate_value
                 
     def send_command(self, command):
-        """
-        Añade un salto de línea al final para que el ESP32 sepa cuándo termina el comando.
-        """
-        if self.ser and self.ser.is_open:
-            # Codificamos el string a bytes y lo enviamos
+        """Envía un comando al ESP32 de forma segura."""
+        # Si no hay conexión, informamos y no hacemos nada.
+        if not (self.ser and self.ser.is_open):
+            print("Error: El puerto serial no está disponible. No se envió el comando.")
+            return
+
+        try:
+            # Intentamos escribir en el puerto. Esto puede fallar si se desconecta.
             self.ser.write(f"{command}\n".encode('utf-8'))
             print(f"Comando enviado al ESP32: {command}")
-        else:
-            print("Error: El puerto serial no está disponible. No se envió el comando.")
+        except serial.SerialException:
+            # Si falla la escritura, manejamos la desconexión.
+            self._handle_disconnect()
         
     def cleanup(self):
         """
@@ -369,21 +375,43 @@ class CalibratorApp:
             self.ser.close()
             print("Puerto serial cerrado.")
 
+    def _handle_disconnect(self):
+        """
+        NUEVO: Centraliza la lógica para manejar una desconexión del ESP32.
+        """
+        # Solo actúa si había una conexión activa
+        if self.ser and self.ser.is_open:
+            print("--- CONEXIÓN SERIAL PERDIDA ---")
+            self.ser.close()
+            self.ser = None
+            # Inicia el temporizador para que _manage_serial_connection empiece a reconectar
+            self.last_reconnect_attempt = time.time()
+            
     def _read_and_parse_serial(self):
-        """Lee una línea del puerto serial y actualiza el diccionario de sensores."""
-        if self.ser and self.ser.in_waiting > 0:
-            try:
+        """Lee una línea del puerto serial de forma segura y actualiza los datos."""
+        # Si no hay conexión, no hacemos nada.
+        if not (self.ser and self.ser.is_open):
+            return
+    
+        try:
+            # Intentamos leer solo si hay datos esperando.
+            # Esta línea es la que puede fallar si se desconecta el USB.
+            if self.ser.in_waiting > 0:
                 response = self.ser.readline().decode('utf-8', errors='ignore').strip()
                 if response:
-                    # Parseamos el paquete de datos: "TEMP:25.3;HUM:45.1;PRES:1013.5;"
+                    # Parseamos el paquete de datos
                     pairs = response.split(';')
                     for pair in pairs:
                         if ':' in pair:
                             key, value = pair.split(':')
                             if key in self.sensor_data:
                                 self.sensor_data[key] = value
-            except Exception as e:
-                print(f"Error al leer/parsear datos serial: {e}")
+        except serial.SerialException:
+            # Si cualquier operación del 'try' falla, llamamos a nuestro nuevo método.
+            self._handle_disconnect()
+        except Exception as e:
+            print(f"Error inesperado en lectura serial: {e}")
+            self._handle_disconnect()
     
 # 4. FUNCIÓN MAIN
 def main():
