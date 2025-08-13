@@ -17,62 +17,40 @@ import yaml
 import logging
 from datetime import datetime
 
-def setup_data_logger():
+def setup_loggers():
     """
-    Configura un logger específico para guardar solo las mediciones estables en un archivo CSV.
+    Configura DOS loggers:
+    1. El logger principal para eventos de la aplicación (calibrator.log).
+    2. El logger de datos para guardar todas las mediciones (mediciones.csv).
     """
-    # Nombre del archivo para los datos
+    # --- Configuración del Logger Principal (calibrator.log) ---
+    log_format = '%(asctime)s - %(levelname)s - %(message)s'
+    logging.basicConfig(level=logging.INFO,
+                        format=log_format,
+                        filename='calibrator.log',
+                        filemode='a')
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(logging.Formatter(log_format))
+    logging.getLogger().addHandler(console_handler)
+
+    # --- Configuración del Logger de Datos (mediciones.csv) ---
     data_filename = 'mediciones.csv'
-    
-    # Comprueba si el archivo ya existe para no escribir el encabezado múltiples veces
     file_exists = os.path.exists(data_filename)
-    
-    # Creamos nuestro logger de datos personalizado
     data_logger = logging.getLogger('data_logger')
-    data_logger.setLevel(logging.INFO) # Solo nos interesa el nivel INFO
+    data_logger.setLevel(logging.INFO)
     
-    # Evitamos que se añadan múltiples handlers si la función se llama más de una vez
     if data_logger.hasHandlers():
         data_logger.handlers.clear()
         
-    # Creamos el handler para el archivo de datos
     data_handler = logging.FileHandler(data_filename, mode='a', encoding='utf-8')
-    
-    # Creamos un formato que es solo el mensaje, sin extras
-    data_formatter = logging.Formatter('%(message)s')
-    data_handler.setFormatter(data_formatter)
-    
-    # Añadimos el handler a nuestro logger de datos
+    data_handler.setFormatter(logging.Formatter('%(message)s'))
     data_logger.addHandler(data_handler)
     
-    # Si el archivo no existía, escribimos el encabezado (header)
     if not file_exists:
-        data_logger.info("Fecha,Hora,Valor") # Formato CSV
+        # El nuevo encabezado unificado
+        data_logger.info("Fecha,Hora,Tipo,Valor,Unidad,Temperatura,Humedad,Presion")
 
     return data_logger
-
-def setup_logging():
-    """
-    Configura el sistema de logging para que guarde los eventos en un archivo
-    y también los muestre en la consola.
-    """
-    # Define el formato de cada línea del log
-    log_format = '%(asctime)s - %(levelname)s - %(message)s'
-    
-    # Configura el logger principal.
-    # Nivel INFO: Se registrarán los mensajes de nivel INFO, WARNING, ERROR y CRITICAL.
-    # Para ver los mensajes de DEBUG, cambiar a logging.DEBUG.
-    logging.basicConfig(level=logging.INFO,
-                        format=log_format,
-                        filename='calibrator.log', # Nombre del archivo de log
-                        filemode='a') # 'a' para añadir al archivo, 'w' para sobreescribir
-
-    # Crea un "handler" para mostrar los logs también en la consola
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(logging.Formatter(log_format))
-    
-    # Añade el handler de la consola al logger principal
-    logging.getLogger().addHandler(console_handler)
     
 def load_config(config_path='config.yaml'):
     """
@@ -93,7 +71,7 @@ def load_config(config_path='config.yaml'):
 # 3. CLASE PRINCIPAL DE LA APLICACIÓN
 class CalibratorApp:
     """Clase principal que encapsula toda la lógica de la aplicación de calibración."""
-    def __init__(self, config_data):
+    def __init__(self, config_data, data_logger):
         """Constructor: Inicializa todos los componentes de la aplicación."""
         self.config = config_data
         
@@ -102,7 +80,7 @@ class CalibratorApp:
         self.stable_reading = "---"
         self.sensor_data = {'TEMP': '--.-', 'HUM': '--.-', 'PRES': '----'}
         self.ser, self.last_reconnect_attempt, self.cap, self.menu_image_base = None, 0, None, None
-        self.data_logger = setup_data_logger()
+        self.data_logger = setup_loggers()
         
         logging.info("Inicializando componentes de la aplicación...")
         # --- Inicialización de Componentes ---
@@ -220,12 +198,9 @@ class CalibratorApp:
         buffer_size = len(self.readings_buffer)
         if buffer_size < self.config['detection']['validation_buffer']['size'] / 2:
             return
-
         counts = Counter(self.readings_buffer)
         if not counts: return
-        
         most_common = counts.most_common(1)[0]
-        
         candidate_value, confidence_count = most_common
 
         if (confidence_count / buffer_size) >= self.config['detection']['validation_buffer']['confidence_threshold']:
@@ -235,8 +210,9 @@ class CalibratorApp:
                 now = datetime.now()
                 fecha = now.strftime('%d/%m/%Y')
                 hora = now.strftime('%H:%M:%S')
-                valor = self.stable_reading
-                self.data_logger.info(f"{fecha},{hora},{valor}")
+                # Formato: Fecha,Hora,Tipo,Valor,Unidad,Temp,Hum,Pres
+                log_line = f"{fecha},{hora},Medicion_VAISALA,{self.stable_reading},ppm,,,"
+                self.data_logger.info(log_line)
 
     def _update_display(self, frame, stable_reading):
         """Actualiza el menú con todos los datos dinámicos."""
@@ -297,24 +273,44 @@ class CalibratorApp:
                 self.ser = None
 
     def _read_and_parse_serial(self):
-        """Lee una línea del puerto serial de forma segura y actualiza los datos."""
-        if not (self.ser and self.ser.is_open): return
-        try:
-            if self.ser.in_waiting > 0:
-                response = self.ser.readline().decode('utf-8', errors='ignore').strip()
-                if response:
-                    logging.debug(f"Datos recibidos de ESP32: {response}")
-                    pairs = response.split(';')
-                    for pair in pairs:
-                        if ':' in pair:
-                            key, value = pair.split(':')
-                            if key in self.sensor_data:
-                                self.sensor_data[key] = value
-        except serial.SerialException:
-            self._handle_disconnect()
-        except Exception as e:
-            logging.error(f"Error inesperado en lectura serial: {e}")
-            self._handle_disconnect()
+            """Lee una línea del serial, actualiza los datos y los loguea en el CSV."""
+            if not (self.ser and self.ser.is_open): return
+            
+            try:
+                if self.ser.in_waiting > 0:
+                    response = self.ser.readline().decode('utf-8', errors='ignore').strip()
+                    if response:
+                        logging.debug(f"Datos recibidos de ESP32: {response}")
+                        
+                        # --- LÓGICA AÑADIDA PARA EL LOGUEO DE DATOS ---
+                        # 1. Verificamos si es un paquete de datos completo que queremos loguear
+                        is_data_packet = 'TEMP' in response and 'HUM' in response and 'PRES' in response
+                        
+                        # 2. Parseamos y actualizamos el diccionario self.sensor_data (esto no cambia)
+                        for pair in response.split(';'):
+                            if ':' in pair:
+                                key, value = pair.split(':')
+                                if key in self.sensor_data:
+                                    self.sensor_data[key] = value
+                        
+                        # 3. Si era un paquete completo, escribimos la línea en mediciones.csv
+                        if is_data_packet:
+                            now = datetime.now()
+                            fecha = now.strftime('%d/%m/%Y')
+                            hora = now.strftime('%H:%M:%S')
+                            temp = self.sensor_data.get('TEMP', '')
+                            hum = self.sensor_data.get('HUM', '')
+                            pres = self.sensor_data.get('PRES', '')
+                            
+                            # Formato: Fecha,Hora,Tipo,Valor,Unidad,Temperatura,Humedad,Presion
+                            log_line = f"{fecha},{hora},Medicion_ESP32,,,{temp},{hum},{pres}"
+                            self.data_logger.info(log_line)
+                            
+            except serial.SerialException:
+                self._handle_disconnect()
+            except Exception as e:
+                logging.error(f"Error inesperado en lectura serial: {e}")
+                self._handle_disconnect()
 
     def send_command(self, command):
         """Envía un comando al ESP32 de forma segura."""
@@ -377,7 +373,7 @@ class CalibratorApp:
 def main():
     """Función principal que configura el logging, carga la config y ejecuta la aplicación."""
     # Llamamos a nuestra nueva función para leer el archivo
-    setup_logging()
+    data_logger = setup_loggers()    
     
     logging.info("Cargando configuración desde 'config.yaml'...")
     config_data = load_config()
@@ -387,7 +383,7 @@ def main():
         logging.critical("La carga de configuración falló. La aplicación no puede continuar.")
         return
     
-    app = CalibratorApp(config_data)
+    app = CalibratorApp(config_data, data_logger)
     app.run()
 
 # 5. PUNTO DE ENTRADA
