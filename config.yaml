@@ -1,0 +1,36 @@
+# ---------------------------------------------------
+# Archivo de Configuración para el Calibrador Asistido
+# ---------------------------------------------------
+
+# Configuración del puerto serial para la comunicación con el ESP32
+serial:
+  # Puerto COM que asigna Windows al ESP32. Verificar en el Administrador de Dispositivos.
+  port: COM3
+  # Velocidad de comunicación. Debe coincidir con la del ESP32.
+  baud_rate: 115200
+
+# Configuración del motor de reconocimiento de caracteres Tesseract
+tesseract:
+  # Ruta completa al ejecutable de Tesseract.
+  # Usar doble barra invertida '\\' o una sola barra '/' para evitar problemas.
+  command_path: 'C:\\Program Files\\Tesseract-OCR\\tesseract.exe'
+
+# Parámetros para la detección de la imagen y la validación
+detection:
+  # Coordenadas y tamaño iniciales de la Región de Interés (ROI) grande
+  roi:
+    initial_x: 150
+    initial_y: 240
+    initial_width: 200
+    initial_height: 120
+
+  # Parámetros para la lógica de decisión estable
+  validation_buffer:
+    # Cantidad de lecturas válidas a almacenar para tomar una decisión.
+    size: 15
+    # Porcentaje de lecturas idénticas necesario para aceptar un valor como estable (0.6 = 60%).
+    confidence_threshold: 0.6
+# Nombres para las ventanas de la interfaz gráfica
+window_names:
+  camera: 'Camara'
+  menu: 'Menu'
