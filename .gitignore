@@ -1,5 +1,4 @@
 __pycache__/ 
-*.h5 
-*.keras 
+0- Codigos/ 
 *.zip 
-0- Codigos/
+calibrator.log/

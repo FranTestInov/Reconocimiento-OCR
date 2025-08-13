@@ -10,13 +10,70 @@ import cv2
 import numpy as np
 import pytesseract
 import serial
+import os
 import time
 from collections import Counter
 import yaml
+import logging
+from datetime import datetime
 
+def setup_data_logger():
+    """
+    Configura un logger específico para guardar solo las mediciones estables en un archivo CSV.
+    """
+    # Nombre del archivo para los datos
+    data_filename = 'mediciones.csv'
+    
+    # Comprueba si el archivo ya existe para no escribir el encabezado múltiples veces
+    file_exists = os.path.exists(data_filename)
+    
+    # Creamos nuestro logger de datos personalizado
+    data_logger = logging.getLogger('data_logger')
+    data_logger.setLevel(logging.INFO) # Solo nos interesa el nivel INFO
+    
+    # Evitamos que se añadan múltiples handlers si la función se llama más de una vez
+    if data_logger.hasHandlers():
+        data_logger.handlers.clear()
+        
+    # Creamos el handler para el archivo de datos
+    data_handler = logging.FileHandler(data_filename, mode='a', encoding='utf-8')
+    
+    # Creamos un formato que es solo el mensaje, sin extras
+    data_formatter = logging.Formatter('%(message)s')
+    data_handler.setFormatter(data_formatter)
+    
+    # Añadimos el handler a nuestro logger de datos
+    data_logger.addHandler(data_handler)
+    
+    # Si el archivo no existía, escribimos el encabezado (header)
+    if not file_exists:
+        data_logger.info("Fecha,Hora,Valor") # Formato CSV
 
-# 2. CONFIGURACIÓN
-# 2. FUNCIÓN PARA CARGAR CONFIGURACIÓN (Reemplaza la clase Config)
+    return data_logger
+
+def setup_logging():
+    """
+    Configura el sistema de logging para que guarde los eventos en un archivo
+    y también los muestre en la consola.
+    """
+    # Define el formato de cada línea del log
+    log_format = '%(asctime)s - %(levelname)s - %(message)s'
+    
+    # Configura el logger principal.
+    # Nivel INFO: Se registrarán los mensajes de nivel INFO, WARNING, ERROR y CRITICAL.
+    # Para ver los mensajes de DEBUG, cambiar a logging.DEBUG.
+    logging.basicConfig(level=logging.INFO,
+                        format=log_format,
+                        filename='calibrator.log', # Nombre del archivo de log
+                        filemode='a') # 'a' para añadir al archivo, 'w' para sobreescribir
+
+    # Crea un "handler" para mostrar los logs también en la consola
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(logging.Formatter(log_format))
+    
+    # Añade el handler de la consola al logger principal
+    logging.getLogger().addHandler(console_handler)
+    
 def load_config(config_path='config.yaml'):
     """
     Lee y carga la configuración desde un archivo YAML.
@@ -27,15 +84,10 @@ def load_config(config_path='config.yaml'):
         with open(config_path, 'r', encoding='utf-8') as file:
             return yaml.safe_load(file)
     except FileNotFoundError:
-        print("--- ERROR CRÍTICO ---")
-        print(f"No se encontró el archivo de configuración: {config_path}")
-        print("Asegurate de que 'config.yaml' exista en la misma carpeta que el script.")
-        print("--------------------")
+        logging.error(f"No se encontró el archivo de configuración: {config_path}")
         return None
     except Exception as e:
-        print("--- ERROR CRÍTICO ---")
-        print(f"Error al leer o parsear el archivo de configuración: {e}")
-        print("--------------------")
+        logging.error(f"Error al leer o parsear el archivo de configuración: {e}")
         return None
 
 # 3. CLASE PRINCIPAL DE LA APLICACIÓN
@@ -49,11 +101,10 @@ class CalibratorApp:
         self.readings_buffer = []
         self.stable_reading = "---"
         self.sensor_data = {'TEMP': '--.-', 'HUM': '--.-', 'PRES': '----'}
-        self.ser = None
-        self.last_reconnect_attempt = 0
-        self.cap = None
-        self.menu_image_base = None
-
+        self.ser, self.last_reconnect_attempt, self.cap, self.menu_image_base = None, 0, None, None
+        self.data_logger = setup_data_logger()
+        
+        logging.info("Inicializando componentes de la aplicación...")
         # --- Inicialización de Componentes ---
         self._initialize_tesseract()
         self._initialize_camera()
@@ -63,18 +114,18 @@ class CalibratorApp:
     def _initialize_tesseract(self):
         """Configura la ruta de Tesseract desde la config."""
         try:
-            # --- CAMBIO IMPORTANTE ---
-            # Accedemos a la configuración como un diccionario anidado
-            tesseract_path = self.config['tesseract']['command_path']
-            pytesseract.pytesseract.tesseract_cmd = tesseract_path
-            print(f"Tesseract version: {pytesseract.get_tesseract_version()}")
+
+            pytesseract.pytesseract.tesseract_cmd = self.config['tesseract']['command_path']
+            logging.info(f"Tesseract version: {pytesseract.get_tesseract_version()}")
+
         except Exception as e:
-            print(f"--- ERROR DE TESSERACT --- \nNo se pudo encontrar Tesseract. Revisá la ruta en config.yaml\nError: {e}\n--------------------------")
+            logging.error(f"No se pudo encontrar Tesseract. Revisá la ruta en config.yaml. Error: {e}")
 
     def _initialize_camera(self):
         """Inicializa la captura de video."""
         self.cap = cv2.VideoCapture(0)
         if not self.cap.isOpened():
+            logging.critical("No se puede abrir la cámara. La aplicación no puede continuar.")
             raise IOError("No se puede abrir la cámara")
             
     def _initialize_roi_state(self):
@@ -100,11 +151,11 @@ class CalibratorApp:
         
     def run(self):
         """Bucle principal de la aplicación."""
-        print("Iniciando bucle principal...")
+        logging.info("Iniciando bucle principal...")
         while True:
             ret, frame = self.cap.read()
             if not ret:
-                print("Error al capturar el frame. Saliendo.")
+                logging.info("Iniciando bucle principal...")
                 break
 
             key = cv2.waitKey(1) & 0xFF
@@ -114,9 +165,11 @@ class CalibratorApp:
             self._manage_serial_connection()
             self._read_and_parse_serial()
             
-            brightness_ratio = self._process_frame_and_update_buffer(frame)
+            self._process_frame_and_update_buffer(frame)
+            
             self._update_stable_reading()
-            self._update_display(frame, self.stable_reading, brightness_ratio)
+            
+            self._update_display(frame, self.stable_reading)
 
         self.cleanup()
 
@@ -125,23 +178,21 @@ class CalibratorApp:
         x, y, w, h = self.big_roi_x, self.big_roi_y, self.big_roi_w, self.big_roi_h
         cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 1)
         
-        brightness_ratio = 0.0
         if w > 0 and h > 0:
             roi_grande = frame[y:y+h, x:x+w]
             gray_roi = cv2.cvtColor(roi_grande, cv2.COLOR_BGR2GRAY)
             thr_roi = cv2.threshold(gray_roi, self.threshold_value, 255, cv2.THRESH_BINARY_INV)[1]
-
-            if thr_roi.size > 0:
-                white_pixels = cv2.countNonZero(thr_roi)
-                brightness_ratio = white_pixels / thr_roi.size
             
             custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789'
             raw_text = pytesseract.image_to_string(thr_roi, config=custom_config)
+            
+            logging.debug(f"Tesseract leyó texto crudo: '{raw_text.strip()}'")
+
             validated_text = self._validate_vaisala_reading(raw_text)
             
             if validated_text is not None:
                 self.readings_buffer.append(validated_text)
-                if len(self.readings_buffer) > self.config['validation_buffer']['size']:
+                if len(self.readings_buffer) > self.config['detection']['validation_buffer']['size']:
                     self.readings_buffer.pop(0)
 
             # --- Visualización de Depuración ---
@@ -162,7 +213,7 @@ class CalibratorApp:
             cv2.putText(frame, "Grises", (x_start1, y_start - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
             cv2.putText(frame, "Threshold", (x_start2, y_start - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
         
-        return brightness_ratio
+        return
 
     def _update_stable_reading(self):
         """Analiza el búfer de lecturas y actualiza el valor estable si hay consenso."""
@@ -174,14 +225,20 @@ class CalibratorApp:
         if not counts: return
         
         most_common = counts.most_common(1)[0]
+        
         candidate_value, confidence_count = most_common
 
         if (confidence_count / buffer_size) >= self.config['detection']['validation_buffer']['confidence_threshold']:
             if self.stable_reading != candidate_value:
-                print(f"NUEVO VALOR ESTABLE: '{candidate_value}' (confianza del {confidence_count/buffer_size:.0%})")
+                logging.info(f"NUEVO VALOR ESTABLE: '{candidate_value}' (confianza del {confidence_count/buffer_size:.0%})")
                 self.stable_reading = candidate_value
+                now = datetime.now()
+                fecha = now.strftime('%d/%m/%Y')
+                hora = now.strftime('%H:%M:%S')
+                valor = self.stable_reading
+                self.data_logger.info(f"{fecha},{hora},{valor}")
 
-    def _update_display(self, frame, stable_reading, brightness_ratio):
+    def _update_display(self, frame, stable_reading):
         """Actualiza el menú con todos los datos dinámicos."""
         updated_menu = self.menu_image_base.copy()
         
@@ -196,9 +253,6 @@ class CalibratorApp:
         cv2.putText(updated_menu, "Presion:", (50, 320), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
         cv2.putText(updated_menu, f"{self.sensor_data['PRES']} hPa", (250, 320), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
         
-        cv2.putText(updated_menu, "Ratio Px Blancos:", (50, 390), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-        cv2.putText(updated_menu, f"{brightness_ratio:.2%}", (250, 390), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-        
         cv2.imshow(self.config['window_names']['menu'], updated_menu)
         cv2.imshow(self.config['window_names']['camera'], frame)
 
@@ -207,9 +261,18 @@ class CalibratorApp:
     def _validate_vaisala_reading(self, raw_text):
         """Aplica las reglas de validación específicas para el display del Vaisala."""
         cleaned_text = raw_text.strip()
-        if not cleaned_text.isdigit(): return None
-        if not (len(cleaned_text) == 3 or len(cleaned_text) == 4): return None
-        if not cleaned_text.endswith('0'): return None
+        if not cleaned_text.isdigit(): 
+            if cleaned_text:
+                logging.debug(f"VALIDACIÓN RECHAZADA: '{cleaned_text}' contiene caracteres no numéricos.")
+            return None
+        
+        if not (len(cleaned_text) == 3 or len(cleaned_text) == 4): 
+            logging.debug(f"VALIDACIÓN RECHAZADA: '{cleaned_text}' no tiene 3 o 4 dígitos.")
+            return None
+        if not cleaned_text.endswith('0'): 
+            logging.debug(f"VALIDACIÓN RECHAZADA: '{cleaned_text}' no termina en 0.")
+            return None
+        
         return cleaned_text
 
     def _manage_serial_connection(self):
@@ -223,14 +286,14 @@ class CalibratorApp:
             port = self.config['serial']['port']
             baud = self.config['serial']['baud_rate']
             
-            print(f"Intentando conectar al puerto serial {port}...")
+            logging.info(f"Intentando conectar al puerto serial {port}...")
             self.last_reconnect_attempt = current_time
             try:
                 self.ser = serial.Serial(port, baud, timeout=1)
                 time.sleep(2)
-                print(f"¡Puerto serial {port} conectado exitosamente!")
+                logging.info(f"¡Puerto serial {port} conectado exitosamente!")
             except serial.SerialException:
-                print("Conexión fallida. Se reintentará...")
+                logging.warning(f"Conexión a {port} fallida. Se reintentará...")
                 self.ser = None
 
     def _read_and_parse_serial(self):
@@ -240,6 +303,7 @@ class CalibratorApp:
             if self.ser.in_waiting > 0:
                 response = self.ser.readline().decode('utf-8', errors='ignore').strip()
                 if response:
+                    logging.debug(f"Datos recibidos de ESP32: {response}")
                     pairs = response.split(';')
                     for pair in pairs:
                         if ':' in pair:
@@ -249,24 +313,24 @@ class CalibratorApp:
         except serial.SerialException:
             self._handle_disconnect()
         except Exception as e:
-            print(f"Error inesperado en lectura serial: {e}")
+            logging.error(f"Error inesperado en lectura serial: {e}")
             self._handle_disconnect()
 
     def send_command(self, command):
         """Envía un comando al ESP32 de forma segura."""
         if not (self.ser and self.ser.is_open):
-            print("Error: El puerto serial no está disponible. No se envió el comando.")
+            logging.warning(f"Envío de comando '{command}' fallido: Puerto serial no disponible.")
             return
         try:
             self.ser.write(f"{command}\n".encode('utf-8'))
-            print(f"Comando enviado al ESP32: {command}")
+            logging.info(f"Comando enviado al ESP32: {command}")
         except serial.SerialException:
             self._handle_disconnect()
 
     def _handle_disconnect(self):
         """Centraliza la lógica para manejar una desconexión del ESP32."""
         if self.ser and self.ser.is_open:
-            print("--- CONEXIÓN SERIAL PERDIDA ---")
+            logging.warning("CONEXIÓN SERIAL PERDIDA")
             self.ser.close()
         self.ser = None
         self.last_reconnect_attempt = time.time()
@@ -302,23 +366,25 @@ class CalibratorApp:
 
     def cleanup(self):
         """Libera los recursos y cierra la conexión serial."""
-        print("Limpiando recursos y cerrando aplicación.")
+        logging.info("Limpiando recursos y cerrando aplicación.")
         self.cap.release()
         cv2.destroyAllWindows()
         if self.ser and self.ser.is_open:
             self.ser.close()
-            print("Puerto serial cerrado.")
+            logging.info("Puerto serial cerrado.")
 
 # 4. FUNCIÓN MAIN
 def main():
-    """Función principal que instancia y ejecuta la aplicación."""
-    print("Cargando configuración desde 'config.yaml'...")
+    """Función principal que configura el logging, carga la config y ejecuta la aplicación."""
     # Llamamos a nuestra nueva función para leer el archivo
+    setup_logging()
+    
+    logging.info("Cargando configuración desde 'config.yaml'...")
     config_data = load_config()
     
     # Si la carga de configuración falla (ej. archivo no encontrado), no continuamos.
     if config_data is None:
-        input("Presioná Enter para salir.") # Pausa para que el usuario pueda leer el error
+        logging.critical("La carga de configuración falló. La aplicación no puede continuar.")
         return
     
     app = CalibratorApp(config_data)
