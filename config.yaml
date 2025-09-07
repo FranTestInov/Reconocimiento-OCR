@@ -5,7 +5,7 @@
 # Configuración del puerto serial para la comunicación con el ESP32
 serial:
   # Puerto COM que asigna Windows al ESP32. Verificar en el Administrador de Dispositivos.
-  port: COM3
+  port: COM4
   # Velocidad de comunicación. Debe coincidir con la del ESP32.
   baud_rate: 115200
 

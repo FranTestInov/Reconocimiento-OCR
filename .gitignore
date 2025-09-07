@@ -1,5 +1,30 @@
-__pycache__/ 
-0- Codigos/ 
-*.zip 
-calibrator.log
+
+# Archivos de Bytecode y compilados de Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Carpetas de distribución y empaquetado
+/build/
+/dist/
+*.egg-info/
+
+# Archivos de registros (logs)
+*.log
+
+# Archivos de datos generados
 mediciones.csv
+
+# Carpetas de entornos virtuales
+.venv
+venv
+env
+
+# Archivos de configuración de IDEs y editores
+.vscode/
+.idea/
+
+# Archivos de variables de entorno (¡muy importante para no subir contraseñas!)
+.env
+.env.*
