@@ -22,7 +22,9 @@ class CalibratorApp:
             "adjust_roi": self.adjust_roi,
             "send_command": self.serial_manager.send_command,
             "send_setpoint": self.send_setpoint_command,
-            "send_pulse": self.send_pulse_command
+            "send_pulse": self.send_pulse_command,
+            "toggle_controls": self.toggle_controls_visibility # <-- NUEVO CALLBACK
+
         }
         self.gui_manager = GuiManager(self.root, callbacks)
         
@@ -108,6 +110,10 @@ class CalibratorApp:
             return
         self.serial_manager.send_command(f"PULSE({value_str})")
         
+    def toggle_controls_visibility(self):
+        """Delega la acción de mostrar/ocultar a la GUI."""
+        self.gui_manager.toggle_controls_visibility()
+    
     def _process_ocr(self, frame):
         roi_coords = (self.roi_x, self.roi_y, self.roi_w, self.roi_h)
         self.debug_images = self.ocr_manager.process_frame(frame, roi_coords, self.threshold)
