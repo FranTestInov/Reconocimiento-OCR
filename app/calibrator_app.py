@@ -1,29 +1,31 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Fri Sep  5 00:26:26 2025
-
-@author: paco2
-"""
-
 # app/calibrator_app.py
 import cv2
 import logging
 from datetime import datetime
+from tkinter import messagebox
+from collections import deque
 from .serial_manager import SerialManager
 from .ocr_manager import OCRManager
-from .ui_manager import UIManager
+from .gui_manager import GuiManager
 
 class CalibratorApp:
-    def __init__(self, config, data_logger):
+    def __init__(self, config, data_logger, root):
         self.config = config
         self.data_logger = data_logger
+        self.root = root
 
-        # Inicializar manejadores
         self.serial_manager = SerialManager(config['serial']['port'], config['serial']['baud_rate'])
         self.ocr_manager = OCRManager(config)
-        self.ui_manager = UIManager(config['window_names'])
-
-        # Estado de la aplicación
+        
+        callbacks = {
+            "on_threshold_change": self.on_threshold_change,
+            "adjust_roi": self.adjust_roi,
+            "send_command": self.serial_manager.send_command,
+            "send_setpoint": self.send_setpoint_command,
+            "send_pulse": self.send_pulse_command
+        }
+        self.gui_manager = GuiManager(self.root, callbacks)
+        
         self.sensor_data = {
             'TEMP': '--.-', 'HUM': '--.-', 'PRES': '----', 'CO2': '----',
             'PCB2_STATE': 'UNKNOWN', 'PCB1_STATE': 'UNKNOWN', 'COOLER': 'UNKNOWN'
@@ -31,58 +33,118 @@ class CalibratorApp:
         roi_cfg = config['detection']['roi']
         self.roi_x, self.roi_y, self.roi_w, self.roi_h = roi_cfg.values()
         self.threshold = 150
+        self.debug_images = None
+        
+        # === INICIO DE LA CORRECCIÓN 1: Asegurarse de que el historial de datos se inicialice ===
+        # Usamos deque para tener listas de tamaño fijo.
+        self.plot_data_sensor = deque(maxlen=50) # Guardar las últimas 50 muestras
+        self.plot_data_ocr = deque(maxlen=50)
+        # === FIN DE LA CORRECCIÓN 1 ===
 
     def setup(self):
-        """Configura la cámara y las ventanas de UI."""
         self.cap = cv2.VideoCapture(0)
         if not self.cap.isOpened():
-            logging.critical("No se puede abrir la cámara. La aplicación no puede continuar.")
-            raise IOError("No se puede abrir la cámara")
-        
-        self.ui_manager.setup_windows(self.threshold, lambda v: setattr(self, 'threshold', v))
+            logging.critical("No se puede abrir la cámara.")
+            return False
+        self.gui_manager.threshold_slider.set(self.threshold)
+        return True
 
     def run(self):
-        """Bucle principal de la aplicación."""
-        logging.info("Iniciando bucle principal...")
-        while True:
-            ret, frame = self.cap.read()
-            if not ret:
-                logging.warning("No se pudo leer el frame. Reintentando...")
-                continue
+        self.update_loop() 
+        self.root.mainloop()
 
-            # Gestionar entrada de teclado
-            key = cv2.waitKey(1) & 0xFF
-            if self._handle_keyboard_input(key):
-                break
+    def update_loop(self):
+        ret, frame = self.cap.read()
+        if not ret:
+            self.root.after(20, self.update_loop)
+            return
 
-            # Procesos principales
-            self.serial_manager.connect()
-            self._process_serial_data()
-            self._process_ocr(frame)
+        self.serial_manager.connect()
+        self._process_serial_data()
+        self._process_ocr(frame)
+        
+        cv2.rectangle(frame, (self.roi_x, self.roi_y), (self.roi_x + self.roi_w, self.roi_y + self.roi_h), (255, 0, 0), 1)
+        
+        self.gui_manager.update_camera_feed(frame)
+        self.gui_manager.update_sensor_data(self.sensor_data, self.ocr_manager.stable_reading)
+        
+        if self.debug_images:
+            self.gui_manager.update_debug_images(self.debug_images[0], self.debug_images[1])
+        
+        # === INICIO DE LA CORRECCIÓN 3: Llamar a la función para actualizar el gráfico ===
+        self.gui_manager.update_plot(self.plot_data_sensor, self.plot_data_ocr)
+        # === FIN DE LA CORRECCIÓN 3 ===
+
+        self.root.after(20, self.update_loop)
+        
+
+    # --- MÉTODOS CALLBACK para la GUI ---
+    def on_threshold_change(self, value):
+        """Se ejecuta cuando el slider de threshold cambia."""
+        self.threshold = int(float(value))
+
+    def adjust_roi(self, part, delta):
+        """Ajusta la posición o tamaño de la ROI."""
+        if part == 'x': self.roi_x += delta
+        elif part == 'y': self.roi_y += delta
+        elif part == 'w': self.roi_w += delta
+        elif part == 'h': self.roi_h += delta
+        self.roi_w = max(10, self.roi_w) # Evitar tamaño negativo
+        self.roi_h = max(10, self.roi_h) # Evitar tamaño negativo
+
+    def send_setpoint_command(self):
+        """Lee el valor del Entry de setpoint, lo valida y envía el comando."""
+        value_str = self.gui_manager.setpoint_entry.get()
+        if not value_str.isdigit():
+            messagebox.showerror("Error de Entrada", "El valor del setpoint debe ser un número entero.")
+            return
+        self.serial_manager.send_command(f"SET_CO2({value_str})")
+
+    def send_pulse_command(self):
+        """Lee el valor del Entry de pulso, lo valida y envía el comando."""
+        value_str = self.gui_manager.pulse_entry.get()
+        if not value_str.isdigit():
+            messagebox.showerror("Error de Entrada", "El valor del pulso debe ser un número entero (en ms).")
+            return
+        self.serial_manager.send_command(f"PULSE({value_str})")
+        
+    def _process_ocr(self, frame):
+        roi_coords = (self.roi_x, self.roi_y, self.roi_w, self.roi_h)
+        self.debug_images = self.ocr_manager.process_frame(frame, roi_coords, self.threshold)
+        
+        if self.ocr_manager.update_stable_reading():
+            self._log_ocr_data()
             
-            # Dibujar ROI y actualizar pantalla
-            cv2.rectangle(frame, (self.roi_x, self.roi_y), (self.roi_x + self.roi_w, self.roi_y + self.roi_h), (255, 0, 0), 1)
-            self.ui_manager.update_display(frame, self.sensor_data, self.ocr_manager.stable_reading, self.debug_images)
-
-        self.cleanup()
+            # === INICIO DE LA CORRECCIÓN 2: Añadir datos del OCR al historial del gráfico ===
+            stable_value_str = self.ocr_manager.stable_reading
+            if stable_value_str.isdigit():
+                self.plot_data_ocr.append(int(stable_value_str))
+            # === FIN DE LA CORRECCIÓN 2 ===
 
     def _process_serial_data(self):
-        """Lee y procesa los datos del puerto serie."""
         line = self.serial_manager.read_line()
         if not line: return
         
-        logging.debug(f"Datos recibidos: {line}")
         try:
+            temp_data = {}
             for pair in line.split(';'):
                 if ':' in pair:
                     key, value = pair.split(':', 1)
                     if key in self.sensor_data:
-                        self.sensor_data[key] = value
-            # Loguear datos si el paquete está completo
-            if all(k in line for k in ['STATUS', 'TEMP', 'CO2']):
+                        temp_data[key] = value
+            
+            self.sensor_data.update(temp_data)
+
+            # === INICIO DE LA CORRECCIÓN 2: Añadir datos del sensor al historial del gráfico ===
+            if 'CO2' in temp_data and temp_data['CO2'].isdigit():
+                self.plot_data_sensor.append(int(temp_data['CO2']))
+            # === FIN DE LA CORRECCIÓN 2 ===
+            
+            if all(k in line for k in ['PCB2_STATE', 'TEMP', 'CO2']):
                 self._log_sensor_data()
         except Exception as e:
             logging.warning(f"No se pudo parsear la trama '{line}': {e}")
+
             
     def _log_sensor_data(self):
         now = datetime.now()
@@ -94,40 +156,18 @@ class CalibratorApp:
         )
         self.data_logger.info(log_line)
 
-    def _process_ocr(self, frame):
-        """Procesa el frame para OCR y actualiza el valor estable."""
-        roi_coords = (self.roi_x, self.roi_y, self.roi_w, self.roi_h)
-        self.debug_images = self.ocr_manager.process_frame(frame, roi_coords, self.threshold)
-        
-        if self.ocr_manager.update_stable_reading():
-            now = datetime.now()
-            log_line = (
-                f"{now.strftime('%d/%m/%Y')},{now.strftime('%H:%M:%S')},"
-                f"Medicion_VAISALA,{self.ocr_manager.stable_reading},ppm,,,"
-            )
-            self.data_logger.info(log_line)
+    def _log_ocr_data(self):
+        now = datetime.now()
+        log_line = (
+            f"{now.strftime('%d/%m/%Y')},{now.strftime('%H:%M:%S')},"
+            f"Medicion_VAISALA,{self.ocr_manager.stable_reading},ppm,,,"
+        )
+        self.data_logger.info(log_line)
             
-    def _handle_keyboard_input(self, key):
-        """Maneja las teclas para controlar la aplicación."""
-        if key == ord('q'): return True
-        # Controles de ROI
-        if key == ord('w'): self.roi_y -= 5
-        if key == ord('s'): self.roi_y += 5
-        if key == ord('a'): self.roi_x -= 5
-        if key == ord('d'): self.roi_x += 5
-        # ... (otros controles de ROI)
-        
-        # Comandos para el ESP32
-        if key == ord('z'): self.serial_manager.send_command("SET_CO2(800)")
-        if key == ord('k'): self.serial_manager.send_command("CALIBRATE_SENSOR")
-        if key == ord('p'): self.serial_manager.send_command("OPEN_ALL")
-        if key == ord('t'): self.serial_manager.send_command("TOGGLE_COOLER")
-        
-        return False
-        
     def cleanup(self):
-        """Libera recursos al cerrar."""
+        """Libera recursos al cerrar la ventana."""
         logging.info("Limpiando recursos y cerrando.")
-        self.cap.release()
-        self.ui_manager.close_all_windows()
+        if hasattr(self, 'cap') and self.cap.isOpened():
+            self.cap.release()
         self.serial_manager.close()
+        self.root.destroy()

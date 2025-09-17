@@ -14,7 +14,7 @@ __pycache__/
 *.log
 
 # Archivos de datos generados
-mediciones.csv
+*csv
 
 # Carpetas de entornos virtuales
 .venv
