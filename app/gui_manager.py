@@ -37,7 +37,7 @@ class GuiManager:
         main_frame.columnconfigure(1, weight=1)
         main_frame.columnconfigure(2, weight=1)
         main_frame.rowconfigure(0, weight=1)
-        main_frame.rowconfigure(1, weight=1)
+        main_frame.rowconfigure(1, weight=0)
 
         # --- Columna 1: Cámara y Barra de Comandos ---
         camera_frame = ttk.LabelFrame(main_frame, text="Vista de la cámara", padding=5)
@@ -88,21 +88,19 @@ class GuiManager:
 
         # --- Columna 3: Panel de Depuración ---
         debug_frame = ttk.LabelFrame(main_frame, text="Imágenes de depuración", padding=5)
-        debug_frame.grid(row=0, column=2, sticky="ew", pady=5)
-        
-        
+        debug_frame.grid(row=0, column=2, sticky="ew", padx=(5, 0), pady=(0,5))
+        # Configurar una sola columna para que los elementos se apilen verticalmente
         debug_frame.columnconfigure(0, weight=1)
-        
+
         # --- Llenar Imágenes de Depuración ---
         # Título para la imagen en escala de grises (Fila 0)
         ttk.Label(debug_frame, text="Escala de Grises").grid(row=0, column=0, pady=(0, 2))
         # Imagen en escala de grises (Fila 1)
         self.gray_label = ttk.Label(debug_frame)
-        self.gray_label.grid(row=1, column=0, pady=(0, 5))
+        self.gray_label.grid(row=1, column=0, pady=(0, 10))
         
         # Título para la imagen binarizada (Fila 2)
-        ttk.Label(debug_frame, text="Threshold (Binarizada)").grid(row=2, column=0, pady=(5, 2))
-        
+        ttk.Label(debug_frame, text="Threshold (Binarizada)").grid(row=2, column=0, pady=(0, 2))
         # Imagen binarizada (Fila 3)
         self.thresh_label = ttk.Label(debug_frame)
         self.thresh_label.grid(row=3, column=0, pady=(0, 5))
