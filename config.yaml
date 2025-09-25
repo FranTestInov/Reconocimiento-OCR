@@ -19,10 +19,10 @@ tesseract:
 detection:
   # Coordenadas y tamaño iniciales de la Región de Interés (ROI) grande
   roi:
-    initial_x: 150
-    initial_y: 240
+    initial_x: 200
+    initial_y: 100
     initial_width: 200
-    initial_height: 120
+    initial_height: 100
 
   # Parámetros para la lógica de decisión estable
   validation_buffer:

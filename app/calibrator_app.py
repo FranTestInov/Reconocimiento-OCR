@@ -71,9 +71,7 @@ class CalibratorApp:
         if self.debug_images:
             self.gui_manager.update_debug_images(self.debug_images[0], self.debug_images[1])
         
-        # === INICIO DE LA CORRECCIÓN 3: Llamar a la función para actualizar el gráfico ===
         self.gui_manager.update_plot(self.plot_data_sensor, self.plot_data_ocr)
-        # === FIN DE LA CORRECCIÓN 3 ===
 
         self.root.after(20, self.update_loop)
         

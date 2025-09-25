@@ -41,8 +41,7 @@ class GuiManager:
         self._create_widgets()
 
     def _create_widgets(self):
-        """Primero la columna 1 y 2, con sus respectivas filas 0, 1 y 2.
-        Segundo las columnas 2 y 3 con sus respectivas filas 0, 1 y 2.
+        """Primero las columnas 0, 1 y 2, con sus respectivas filas 0, 1 y 2.
         """
         # --- Contenedor Principal ---
         main_frame = ttk.Frame(self.root, padding="10")#Crea un frame (en la ventana raiz, separación 10p)
@@ -50,25 +49,26 @@ class GuiManager:
         #El Administrador de Geometrías del Frame main_frame es declarado como grid
         #A continuación la configuración del grid
         # Configurar las columnas y las filas del frame principal
-        main_frame.columnconfigure(0, weight=1)#Dentro de main frame, fija la col 0 peso 2
-        main_frame.columnconfigure(1, weight=1)#fija col 1, mismo peso en col
-        main_frame.columnconfigure(2, weight=1)#fija la 2
-        main_frame.columnconfigure(3, weight=1)#...
-        main_frame.rowconfigure(0, weight=1)#Fija row 0
-        main_frame.rowconfigure(1, weight=0)#Fija row 1 con peso de 0, se ajusta mas que el resto
-        main_frame.rowconfigure(2, weight=1)#...
+        main_frame.columnconfigure(0, weight=0)#Dentro de main frame, fija la col 0 peso 2
+        main_frame.columnconfigure(1, weight=2)#fija col 1, mismo peso en col
+        main_frame.columnconfigure(2, weight=2)#fija la 2
+        #main_frame.columnconfigure(3, weight=1)#...
+        main_frame.rowconfigure(0, weight=0)#Fija row 0
+        main_frame.rowconfigure(1, weight=2)#Fija row 1 con peso de 0, se ajusta mas que el resto
+        main_frame.rowconfigure(2, weight=2)#...
 
         # --- row 0, col 0: Camara ---
         camera_frame = ttk.LabelFrame(main_frame, text="Vista de la cámara", padding=5)
-        camera_frame.grid(row=0, column=0,columnspan=2, sticky="nsew", padx=(0, 10), pady=(0,5))
+        camera_frame.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
         self.camera_label = ttk.Label(camera_frame)#Crea Label dentro de camara_frame
-        self.camera_label.pack(fill="x", expand=True, anchor="center")#Administrador de geometría pack, expande
-        #fill -> Define las direcciones que el widget rellene el frame al que pertenece
+        self.camera_label.pack(fill="x")#Administrador de geometría pack, expande
+        #self.camera_label.pack(fill="x", expand=True, anchor="center")#Administrador de geometría pack, expande
+        #fill -> Define las direcciones que el widget rellena el frame al que pertenece
         #expand -> El widget se estira cuando la ventana se agranada
         #anchor -> Centra la imagen
         # --- row 1, col 0: thr + debug de la camara ---
         debug_frame = ttk.LabelFrame(main_frame, text="Debug de imagen", padding=5)
-        debug_frame.grid(row=1,column=0,columnspan=2,sticky="news",padx=(0,5),pady=(5,0))
+        debug_frame.grid(row=1,column=0,sticky="news",padx=(0,5),pady=(5,0))
         debug_frame.columnconfigure(0, weight=1)
         debug_frame.columnconfigure(1, weight=1)
         
@@ -84,38 +84,25 @@ class GuiManager:
                                    column=0,
                                    columnspan=2,
                                    padx=5,
-                                   pady=2,
+                                   pady=5,
                                    sticky="news")
 
             # --- row 1, col 0: Depuración de imagen escala de grices ---
-        ttk.Label(debug_frame, text="Escala de Grises").grid(row=1, column=0, pady=(0, 2))
+        ttk.Label(debug_frame, text="Escala de Grises").grid(row=1, column=0, padx=2, pady=2, sticky="news")
         self.gray_label = ttk.Label(debug_frame)
-        self.gray_label.grid(row=2, column=0, padx=5,pady=5, sticky="news")
+        self.gray_label.grid(row=2, column=0, padx=2,pady=2, sticky="news")
             # --- row 1, col 1: Depuración de imagen binarizada ---
        
-        ttk.Label(debug_frame, text ="Threshold (Binarizada)").grid(row=1, column=1, pady=5, padx=5)
+        ttk.Label(debug_frame, text ="Threshold (Binarizada)").grid(row=1, column=1, padx=2, pady=2, sticky="news")
         self.bin_label = ttk.Label(debug_frame) 
-        self.bin_label.grid(row=2, column=1, sticky="news", padx=5, pady=5)
+        self.bin_label.grid(row=2, column=1, padx=2, pady=2, sticky="news")
             #Fin de depuración de imagen
-        
-        # --- Comandos para ajustar la ROI (row 2, col 0) debug_frame--- 
-        self.roi_frame = ttk.LabelFrame(main_frame, text="OCR Controls", padding=5)
-        self.roi_frame.grid(row=2, column=0, sticky="nsew", padx=(0, 10), pady=(5,0))
-       # ... (código de botones ROI)
-        ttk.Button(self.roi_frame, text="↑", width=3, command=lambda: self.app_callbacks["adjust_roi"]('y', -5)).grid(row=1, column=1)
-        ttk.Button(self.roi_frame, text="←", width=3, command=lambda: self.app_callbacks["adjust_roi"]('x', -5)).grid(row=2, column=0)
-        ttk.Button(self.roi_frame, text="→", width=3, command=lambda: self.app_callbacks["adjust_roi"]('x', 5)).grid(row=2, column=2)
-        ttk.Button(self.roi_frame, text="↓", width=3, command=lambda: self.app_callbacks["adjust_roi"]('y', 5)).grid(row=3, column=1)
-        ttk.Button(self.roi_frame, text="W+", width=3, command=lambda: self.app_callbacks["adjust_roi"]('w', 5)).grid(row=4, column=0, pady=(10,0))
-        ttk.Button(self.roi_frame, text="W-", width=3, command=lambda: self.app_callbacks["adjust_roi"]('w', -5)).grid(row=4, column=2, pady=(10,0))
-        ttk.Button(self.roi_frame, text="H+", width=3, command=lambda: self.app_callbacks["adjust_roi"]('h', 5)).grid(row=5, column=0)
-        ttk.Button(self.roi_frame, text="H-", width=3, command=lambda: self.app_callbacks["adjust_roi"]('h', -5)).grid(row=5, column=2)
-        
-        # --- row 2, col 1: Comandos a la PC ---
+           
+        # --- row 2, col 0: Comandos a la PC ---
         
         # --- Comandos del Sistema ---
-        system_commands_frame = ttk.LabelFrame(main_frame, text="Comandos Sistema", padding=10)
-        system_commands_frame.grid(row= 2, column=1, sticky="news", padx=5,pady=5)
+        system_commands_frame = ttk.LabelFrame(main_frame, text="Comandos Sistema", padding=5)
+        system_commands_frame.grid(row= 2, column=0, sticky="news", padx=5,pady=5)
         
         setpoint_frame = ttk.Frame(system_commands_frame)
         # ... (código de setpoint)
@@ -141,9 +128,10 @@ class GuiManager:
         ttk.Button(buttons_frame, text="Calibrar Sensor", command=lambda: self.app_callbacks["send_command"]("CALIBRATE_SENSOR")).pack(side='left', expand=True, fill='x', padx=2)
         ttk.Button(buttons_frame, text="PÁNICO", command=lambda: self.app_callbacks["send_command"]("OPEN_ALL")).pack(side='left', expand=True, fill='x', padx=2)
 
-        # --- row 0, col 2 y 3: Gráfico en Tiempo Real ---
+
+        # --- row 0, col 1 y 2: Grafico en Tiempo Real ---
         plot_frame = ttk.LabelFrame(main_frame, text="Gráfico en tiempo real de las variables", padding=5)
-        plot_frame.grid(row=0, column=2, columnspan=2, sticky="nsew", padx=5, pady=(5,0))
+        plot_frame.grid(row=0, column=1,columnspan=2, sticky="nsew", padx=5, pady=5)
         # (El código para crear el gráfico no cambia)
         # --- Llenar Gráfico ---
         self.fig = Figure(figsize=(5, 3), dpi=100)
@@ -159,7 +147,7 @@ class GuiManager:
         
         # --- row 2, col 2: Dashboard ---
         dashboard_frame = ttk.LabelFrame(main_frame, text="Dashboard", padding=10)
-        dashboard_frame.grid(row=1, column=2, sticky="ew", padx=5, pady=(0,5))
+        dashboard_frame.grid(row=1, column=1, rowspan=2, sticky="ew", padx=5, pady=5)
         # --- Llenar Dashboard --- -> Crear funcion
         ttk.Label(dashboard_frame, text="Temperatura:").grid(row=0, column=0, sticky="w", pady=2)
         ttk.Label(dashboard_frame, textvariable=self.sensor_vars['TEMP']).grid(row=0, column=1, sticky="w", pady=2, padx=5)
@@ -179,6 +167,19 @@ class GuiManager:
         ttk.Label(dashboard_frame, text="Estado PCB2:").grid(row=8, column=0, sticky="w", pady=2)
         ttk.Label(dashboard_frame, textvariable=self.sensor_vars['PCB2_STATE']).grid(row=8, column=1, sticky="w", pady=2, padx=5)
         
+        # --- Comandos para ajustar la ROI (row 2, col 3) debug_frame--- 
+        self.roi_frame = ttk.LabelFrame(main_frame, text="OCR Controls", padding=5)
+        self.roi_frame.grid(row=1,rowspan=2, column=2, sticky="nsew", padx=(0, 10), pady=(5,0))
+       # ... (código de botones ROI)
+        ttk.Button(self.roi_frame, text="↑", width=3, command=lambda: self.app_callbacks["adjust_roi"]('y', -5)).grid(row=1, column=1)
+        ttk.Button(self.roi_frame, text="←", width=3, command=lambda: self.app_callbacks["adjust_roi"]('x', -5)).grid(row=2, column=0)
+        ttk.Button(self.roi_frame, text="→", width=3, command=lambda: self.app_callbacks["adjust_roi"]('x', 5)).grid(row=2, column=2)
+        ttk.Button(self.roi_frame, text="↓", width=3, command=lambda: self.app_callbacks["adjust_roi"]('y', 5)).grid(row=3, column=1)
+        ttk.Button(self.roi_frame, text="W+", width=3, command=lambda: self.app_callbacks["adjust_roi"]('w', 5)).grid(row=4, column=0, pady=(10,0))
+        ttk.Button(self.roi_frame, text="W-", width=3, command=lambda: self.app_callbacks["adjust_roi"]('w', -5)).grid(row=4, column=2, pady=(10,0))
+        ttk.Button(self.roi_frame, text="H+", width=3, command=lambda: self.app_callbacks["adjust_roi"]('h', 5)).grid(row=5, column=0)
+        ttk.Button(self.roi_frame, text="H-", width=3, command=lambda: self.app_callbacks["adjust_roi"]('h', -5)).grid(row=5, column=2)
+      
         
     #Funcion _create_widgets
     
