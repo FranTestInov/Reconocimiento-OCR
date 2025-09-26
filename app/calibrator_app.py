@@ -35,11 +35,8 @@ class CalibratorApp:
         self.threshold = 150
         self.debug_images = None
         
-        # === INICIO DE LA CORRECCIÓN 1: Asegurarse de que el historial de datos se inicialice ===
-        # Usamos deque para tener listas de tamaño fijo.
         self.plot_data_sensor = deque(maxlen=50) # Guardar las últimas 50 muestras
         self.plot_data_ocr = deque(maxlen=50)
-        # === FIN DE LA CORRECCIÓN 1 ===
 
     def setup(self):
         self.cap = cv2.VideoCapture(0)
@@ -61,6 +58,9 @@ class CalibratorApp:
 
         self.serial_manager.connect()
         self._process_serial_data()
+        ancho_deseado = 640
+        alto_deseado = 480
+        frame = cv2.resize(frame, (ancho_deseado, alto_deseado))
         self._process_ocr(frame)
         
         cv2.rectangle(frame, (self.roi_x, self.roi_y), (self.roi_x + self.roi_w, self.roi_y + self.roi_h), (255, 0, 0), 1)
@@ -113,11 +113,9 @@ class CalibratorApp:
         if self.ocr_manager.update_stable_reading():
             self._log_ocr_data()
             
-            # === INICIO DE LA CORRECCIÓN 2: Añadir datos del OCR al historial del gráfico ===
             stable_value_str = self.ocr_manager.stable_reading
             if stable_value_str.isdigit():
                 self.plot_data_ocr.append(int(stable_value_str))
-            # === FIN DE LA CORRECCIÓN 2 ===
 
     def _process_serial_data(self):
         line = self.serial_manager.read_line()
