@@ -35,8 +35,9 @@ class CalibratorApp:
         self.threshold = 150
         self.debug_images = None
         
-        self.plot_data_sensor = deque(maxlen=50) # Guardar las últimas 50 muestras
-        self.plot_data_ocr = deque(maxlen=50)
+        # Usamos deque para tener listas de tamaño fijo.
+        self.plot_data_sensor = deque(maxlen=500) # Guardar las últimas 50 muestras
+        self.plot_data_ocr = deque(maxlen=500)
 
     def setup(self):
         self.cap = cv2.VideoCapture(0)
@@ -65,7 +66,11 @@ class CalibratorApp:
         
         cv2.rectangle(frame, (self.roi_x, self.roi_y), (self.roi_x + self.roi_w, self.roi_y + self.roi_h), (255, 0, 0), 1)
         
-        self.gui_manager.update_camera_feed(frame)
+        ancho_deseado = 400
+        alto_deseado = 300
+        frame_redimensionado = cv2.resize(frame, (ancho_deseado, alto_deseado))
+        
+        self.gui_manager.update_camera_feed(frame_redimensionado)
         self.gui_manager.update_sensor_data(self.sensor_data, self.ocr_manager.stable_reading)
         
         if self.debug_images:
@@ -131,10 +136,8 @@ class CalibratorApp:
             
             self.sensor_data.update(temp_data)
 
-            # === INICIO DE LA CORRECCIÓN 2: Añadir datos del sensor al historial del gráfico ===
             if 'CO2' in temp_data and temp_data['CO2'].isdigit():
                 self.plot_data_sensor.append(int(temp_data['CO2']))
-            # === FIN DE LA CORRECCIÓN 2 ===
             
             if all(k in line for k in ['PCB2_STATE', 'TEMP', 'CO2']):
                 self._log_sensor_data()

@@ -29,7 +29,7 @@ detection:
     # Cantidad de lecturas válidas a almacenar para tomar una decisión.
     size: 15
     # Porcentaje de lecturas idénticas necesario para aceptar un valor como estable (0.6 = 60%).
-    confidence_threshold: 0.6
+    confidence_threshold: 0.7
 # Nombres para las ventanas de la interfaz gráfica
 window_names:
   camera: 'Camara'
