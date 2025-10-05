@@ -59,7 +59,10 @@ class OCRManager:
         return text
 
     def update_stable_reading(self):
-        """Analiza el búfer y determina si hay una nueva lectura estable."""
+        """
+        Analiza el búfer y determina si hay una nueva lectura estable.
+        Configura el buffer segun el archivo de configuración
+        """
         buffer_conf = self.config['detection']['validation_buffer']
         buffer_size = len(self.readings_buffer)
 

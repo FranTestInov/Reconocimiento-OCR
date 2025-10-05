@@ -11,7 +11,7 @@ def main():
     logging.info("Cargando configuración desde 'config.yaml'...")
     config = load_config()
     if not config:
-        logging.critical("La carga de configuración falló. La aplicación no puede continuar.")
+        logging.critical("La carga de q falló. La aplicación no puede continuar.")
         return
     
     try:

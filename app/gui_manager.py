@@ -58,8 +58,8 @@ class GuiManager:
         main_frame.rowconfigure(2, weight=2)#...
 
         # --- row 0, col 0: Camara ---
-        camera_frame = ttk.LabelFrame(main_frame, text="Vista de la cámara", padding=5)
-        camera_frame.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+        camera_frame = ttk.LabelFrame(main_frame, text="Vista de la cámara", padding=2)
+        camera_frame.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
         self.camera_label = ttk.Label(camera_frame)#Crea Label dentro de camara_frame
         self.camera_label.pack(fill="x")#Administrador de geometría pack, expande
         #self.camera_label.pack(fill="x", expand=True, anchor="center")#Administrador de geometría pack, expande
@@ -67,15 +67,15 @@ class GuiManager:
         #expand -> El widget se estira cuando la ventana se agranada
         #anchor -> Centra la imagen
         # --- row 1, col 0: thr + debug de la camara ---
-        debug_frame = ttk.LabelFrame(main_frame, text="Debug de imagen", padding=5)
-        debug_frame.grid(row=1,column=0,sticky="news",padx=(0,5),pady=(5,0))
+        debug_frame = ttk.LabelFrame(main_frame, text="Debug de imagen", padding=2)
+        debug_frame.grid(row=1,column=0,sticky="news",padx=2,pady=2)
         debug_frame.columnconfigure(0, weight=1)
         debug_frame.columnconfigure(1, weight=1)
         
             # --- DENTRO DE "Debug de imagen" ---
             # --- row 0, col 0 y 1: Threshold ---
         self.thr_label = ttk.Label(debug_frame, text="Threshold:")
-        self.thr_label.grid(row=0, column=0, columnspan=2, sticky="nw", padx=5, pady=5)        
+        self.thr_label.grid(row=0, column=0, columnspan=2, sticky="nw", padx=2, pady=2)        
         self.threshold_slider = ttk.Scale(debug_frame,
                                   from_=0, to=250,
                                   orient="horizontal",
@@ -83,8 +83,8 @@ class GuiManager:
         self.threshold_slider.grid(row=0,
                                    column=0,
                                    columnspan=2,
-                                   padx=5,
-                                   pady=5,
+                                   padx=2,
+                                   pady=2,
                                    sticky="news")
 
             # --- row 1, col 0: Depuración de imagen escala de grices ---
@@ -101,8 +101,8 @@ class GuiManager:
         # --- row 2, col 0: Comandos a la PC ---
         
         # --- Comandos del Sistema ---
-        system_commands_frame = ttk.LabelFrame(main_frame, text="Comandos Sistema", padding=5)
-        system_commands_frame.grid(row= 2, column=0, sticky="news", padx=5,pady=5)
+        system_commands_frame = ttk.LabelFrame(main_frame, text="Comandos Sistema", padding=2)
+        system_commands_frame.grid(row= 2, column=0, sticky="news", padx=2,pady=2)
         
         setpoint_frame = ttk.Frame(system_commands_frame)
         # ... (código de setpoint)
