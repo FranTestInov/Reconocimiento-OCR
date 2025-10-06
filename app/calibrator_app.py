@@ -48,6 +48,7 @@ class CalibratorApp:
             logging.critical("No se puede abrir la cámara.")
             return False
         self.gui_manager.threshold_slider.set(self.threshold)
+        logging.INFO("Camapra abierta.")
         return True
 
     def run(self):
@@ -166,10 +167,12 @@ class CalibratorApp:
     def _log_sensor_data(self):
         now = datetime.now()
         log_line = (
-            f"{now.strftime('%d/%m/%Y')},{now.strftime('%H:%M:%S')},"
-            f"Medicion_ESP32,{self.sensor_data.get('CO2', '')},ppm,"
-            f"{self.sensor_data.get('TEMP', '')},{self.sensor_data.get('HUM', '')},"
-            f"{self.sensor_data.get('PRES', '')}"
+            f"{now.strftime('%d/%m/%Y')},{now.strftime('%H:%M:%S')}," #TimeStamp
+            f"{self.last_ocr_value}," #CO2 Vaisala
+            f"{self.sensor_data.get('CO2', '')}," #CO2 MH-Z19C
+            f"{self.sensor_data.get('TEMP', '')}," #Temp
+            f"{self.sensor_data.get('HUM', '')}," #Hum
+            f"{self.sensor_data.get('PRES', '')}" #Presion
         )
         self.data_logger.info(log_line)
 
@@ -177,7 +180,7 @@ class CalibratorApp:
         now = datetime.now()
         log_line = (
             f"{now.strftime('%d/%m/%Y')},{now.strftime('%H:%M:%S')},"
-            f"Medicion_VAISALA,{self.ocr_manager.stable_reading},ppm,,,"
+            f"Medicion_VAISALA,{self.ocr_manager.stable_reading},ppm"
         )
         self.data_logger.info(log_line)
             

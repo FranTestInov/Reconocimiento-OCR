@@ -40,7 +40,7 @@ def setup_loggers():
     data_logger.addHandler(data_handler)
     
     if not file_exists:
-        data_logger.info("Fecha,Hora,GM-70,MH-Z19C,Temperatura,Humedad,Presion")
+        data_logger.info("Fecha,Hora,GM-70[ppm],MH-Z19C[ppm],Temperatura[°c],Humedad[%],Presion[hPa]")
 
     return data_logger
 

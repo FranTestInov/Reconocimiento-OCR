@@ -98,11 +98,9 @@ class GuiManager:
         self.bin_label.grid(row=2, column=1, padx=2, pady=2, sticky="news")
             #Fin de depuración de imagen
            
-        # --- row 2, col 0: Comandos a la PC ---
-        
-        # --- Comandos del Sistema ---
+        # --- row 2, col 0: Comandos del Sistema ---
         system_commands_frame = ttk.LabelFrame(main_frame, text="Comandos Sistema", padding=2)
-        system_commands_frame.grid(row= 2, column=0, sticky="news", padx=2,pady=2)
+        system_commands_frame.grid(row= 1, column=2, sticky="news", padx=2,pady=2) # Pasar a row 1 col 2
         
         setpoint_frame = ttk.Frame(system_commands_frame)
         # ... (código de setpoint)
@@ -167,23 +165,27 @@ class GuiManager:
         ttk.Label(dashboard_frame, text="Estado PCB2:").grid(row=8, column=0, sticky="w", pady=2)
         ttk.Label(dashboard_frame, textvariable=self.sensor_vars['PCB2_STATE']).grid(row=8, column=1, sticky="w", pady=2, padx=5)
         
-        # --- Comandos para ajustar la ROI (row 2, col 3) debug_frame--- 
+        # --- Comandos para ajustar la ROI (row 1, col 2) debug_frame--- 
         self.roi_frame = ttk.LabelFrame(main_frame, text="OCR Controls", padding=5)
-        self.roi_frame.grid(row=1,rowspan=2, column=2, sticky="nsew", padx=(0, 10), pady=(5,0))
-       # ... (código de botones ROI)
-        ttk.Button(self.roi_frame, text="↑", width=3, command=lambda: self.app_callbacks["adjust_roi"]('y', -5)).grid(row=1, column=1)
-        ttk.Button(self.roi_frame, text="←", width=3, command=lambda: self.app_callbacks["adjust_roi"]('x', -5)).grid(row=2, column=0)
-        ttk.Button(self.roi_frame, text="→", width=3, command=lambda: self.app_callbacks["adjust_roi"]('x', 5)).grid(row=2, column=2)
-        ttk.Button(self.roi_frame, text="↓", width=3, command=lambda: self.app_callbacks["adjust_roi"]('y', 5)).grid(row=3, column=1)
-        ttk.Button(self.roi_frame, text="W+", width=3, command=lambda: self.app_callbacks["adjust_roi"]('w', 5)).grid(row=4, column=0, pady=(10,0))
-        ttk.Button(self.roi_frame, text="W-", width=3, command=lambda: self.app_callbacks["adjust_roi"]('w', -5)).grid(row=4, column=2, pady=(10,0))
-        ttk.Button(self.roi_frame, text="H+", width=3, command=lambda: self.app_callbacks["adjust_roi"]('h', 5)).grid(row=5, column=0)
-        ttk.Button(self.roi_frame, text="H-", width=3, command=lambda: self.app_callbacks["adjust_roi"]('h', -5)).grid(row=5, column=2)
+        self.roi_frame.grid(row=2, column=0, sticky="nsew", padx=(0, 10), pady=(5,0)) # Pasar a row 2, col 0. Quitar rowspan
+        # Botones de posición
+        self.roi_position = ttk.LabelFrame(self.roi_frame, text="Posición OCR", padding=5)
+        self.roi_position.grid(row=0, column=0 , sticky="nsew", padx=(0, 10), pady=(5,0))
+        ttk.Button(self.roi_position, text="↑", width=3, command=lambda: self.app_callbacks["adjust_roi"]('y', -5)).grid(row=0, column=1)
+        ttk.Button(self.roi_position, text="←", width=3, command=lambda: self.app_callbacks["adjust_roi"]('x', -5)).grid(row=1, column=0)
+        ttk.Button(self.roi_position, text="→", width=3, command=lambda: self.app_callbacks["adjust_roi"]('x', 5)).grid(row=1, column=2)
+        ttk.Button(self.roi_position, text="↓", width=3, command=lambda: self.app_callbacks["adjust_roi"]('y', 5)).grid(row=1, column=1)
+        # Botones de tamaño
+        self.roi_geometry = ttk.LabelFrame(self.roi_frame, text="Tamaño OCR", padding=5)
+        self.roi_geometry.grid(row=0, column=1 , sticky="nsew", padx=(0, 10), pady=(5,0))
+        ttk.Button(self.roi_geometry, text="W+", width=3, command=lambda: self.app_callbacks["adjust_roi"]('w', 5)).grid(row=0, column=3) #row 0, col 3
+        ttk.Button(self.roi_geometry, text="W-", width=3, command=lambda: self.app_callbacks["adjust_roi"]('w', -5)).grid(row=0, column=4)# row 0, col 4
+        ttk.Button(self.roi_geometry, text="H+", width=3, command=lambda: self.app_callbacks["adjust_roi"]('h', 5)).grid(row=1, column=3) #row 1, col 3
+        ttk.Button(self.roi_geometry, text="H-", width=3, command=lambda: self.app_callbacks["adjust_roi"]('h', -5)).grid(row=1, column=4) #row 1, col 4
       
         
-    #Funcion _create_widgets
+    #Fin funcion _create_widgets
     
-    #Aca debería poner las funciones del threshold, los botones, los comandos, el grafico, etc, lo de arriba solo arma la pantalla    
     
     def update_plot(self, sensor_data, ocr_data):
         self.line_sensor.set_data(range(len(sensor_data)), list(sensor_data))
