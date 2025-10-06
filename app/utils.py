@@ -4,6 +4,15 @@ import os
 import yaml
 from datetime import datetime
 
+PCB2_STATE_MAP = {
+    0: "IDLE",
+    1: "EXECUTING_SETPOINT",
+    2: "SETPOINT_STABLE",
+    3: "EXECUTING_CALIBRATION",
+    4: "PULSE",
+    5: "PANIC_MODE"
+}
+
 def setup_loggers():
     """Configura el logger de la aplicación y el logger de datos CSV."""
     # (El código de la función setup_loggers() va aquí, sin cambios)
@@ -47,3 +56,4 @@ def load_config(config_path='config.yaml'):
     except Exception as e:
         logging.error(f"Error al leer o parsear el archivo de configuración: {e}")
         return None
+    

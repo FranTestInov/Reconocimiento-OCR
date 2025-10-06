@@ -7,6 +7,7 @@ from collections import deque
 from .serial_manager import SerialManager
 from .ocr_manager import OCRManager
 from .gui_manager import GuiManager
+from .utils import PCB2_STATE_MAP
 
 class CalibratorApp:
     def __init__(self, config, data_logger, root):
@@ -38,6 +39,8 @@ class CalibratorApp:
         # Usamos deque para tener listas de tamaño fijo.
         self.plot_data_sensor = deque(maxlen=500) # Guardar las últimas 50 muestras
         self.plot_data_ocr = deque(maxlen=500)
+        
+        self.last_ocr_value = 400
 
     def setup(self):
         self.cap = cv2.VideoCapture(0)
@@ -48,7 +51,8 @@ class CalibratorApp:
         return True
 
     def run(self):
-        self.update_loop() 
+        self.update_loop()
+        self._update_plot_periodically()
         self.root.mainloop()
 
     def update_loop(self):
@@ -76,11 +80,16 @@ class CalibratorApp:
         if self.debug_images:
             self.gui_manager.update_debug_images(self.debug_images[0], self.debug_images[1])
         
-        self.gui_manager.update_plot(self.plot_data_sensor, self.plot_data_ocr)
+        #self.gui_manager.update_plot(self.plot_data_sensor, self.plot_data_ocr)
 
         self.root.after(20, self.update_loop)
         
 
+    def _update_plot_periodically(self):
+        """Actualiza el gráfico cada segundo."""
+        self.gui_manager.update_plot(self.plot_data_sensor, self.plot_data_ocr)
+        self.root.after(1000, self._update_plot_periodically) # Llama a este mismo método después de 1000ms
+        
     # --- MÉTODOS CALLBACK para la GUI ---
     def on_threshold_change(self, value):
         """Se ejecuta cuando el slider de threshold cambia."""
@@ -120,8 +129,8 @@ class CalibratorApp:
             
             stable_value_str = self.ocr_manager.stable_reading
             if stable_value_str.isdigit():
-                self.plot_data_ocr.append(int(stable_value_str))
-
+                    self.last_ocr_value = int(stable_value_str)
+                
     def _process_serial_data(self):
         line = self.serial_manager.read_line()
         if not line: return
@@ -132,12 +141,21 @@ class CalibratorApp:
                 if ':' in pair:
                     key, value = pair.split(':', 1)
                     if key in self.sensor_data:
-                        temp_data[key] = value
-            
+                        if key == 'PCB2_STATE':
+                            try:
+                                state_num = int(value)
+                                # Usamos .get() para obtener el nombre. Si no existe, devuelve 'UNKNOWN'.
+                                temp_data[key] = PCB2_STATE_MAP.get(state_num, 'UNKNOWN')
+                            except (ValueError, TypeError):
+                                temp_data[key] = 'INVALID_STATE' # Si el valor no es un número
+                        else:
+                            temp_data[key] = value
+                            
             self.sensor_data.update(temp_data)
 
             if 'CO2' in temp_data and temp_data['CO2'].isdigit():
                 self.plot_data_sensor.append(int(temp_data['CO2']))
+                self.plot_data_ocr.append(self.last_ocr_value)
             
             if all(k in line for k in ['PCB2_STATE', 'TEMP', 'CO2']):
                 self._log_sensor_data()
