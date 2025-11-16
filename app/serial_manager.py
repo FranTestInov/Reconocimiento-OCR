@@ -35,6 +35,7 @@ class SerialManager:
             return None
         try:
             return self.ser.readline().decode('utf-8', errors='ignore').strip()
+            logging.info(f"Recepción Serial: {self.ser.readline().decode('utf-8', errors='ignore').strip()}")
         except serial.SerialException:
             self._handle_disconnect()
             return None

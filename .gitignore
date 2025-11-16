@@ -12,6 +12,7 @@ __pycache__/
 
 # Archivos de registros (logs)
 *.log
+/Logs anteriores/
 
 # Archivos de datos generados
 *csv

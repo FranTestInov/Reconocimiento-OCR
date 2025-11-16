@@ -37,18 +37,18 @@ class CalibratorApp:
         self.debug_images = None
         
         # Usamos deque para tener listas de tamaño fijo.
-        self.plot_data_sensor = deque(maxlen=500) # Guardar las últimas 50 muestras
-        self.plot_data_ocr = deque(maxlen=500)
+        self.plot_data_sensor = deque(maxlen=1000) # Guardar las últimas 50 muestras
+        self.plot_data_ocr = deque(maxlen=1000)
         
         self.last_ocr_value = 400
 
     def setup(self):
-        self.cap = cv2.VideoCapture(0)
+        self.cap = cv2.VideoCapture(1)
         if not self.cap.isOpened():
             logging.critical("No se puede abrir la cámara.")
             return False
         self.gui_manager.threshold_slider.set(self.threshold)
-        logging.INFO("Camapra abierta.")
+        #logging.INFO("Camapra abierta.")
         return True
 
     def run(self):
@@ -89,6 +89,7 @@ class CalibratorApp:
     def _update_plot_periodically(self):
         """Actualiza el gráfico cada segundo."""
         self.gui_manager.update_plot(self.plot_data_sensor, self.plot_data_ocr)
+        self._log_sensor_data() # Loguea las mediciones en el CSV cada 1 segundo
         self.root.after(1000, self._update_plot_periodically) # Llama a este mismo método después de 1000ms
         
     # --- MÉTODOS CALLBACK para la GUI ---
@@ -126,7 +127,7 @@ class CalibratorApp:
         self.debug_images = self.ocr_manager.process_frame(frame, roi_coords, self.threshold)
         
         if self.ocr_manager.update_stable_reading():
-            self._log_ocr_data()
+            #self._log_ocr_data()
             
             stable_value_str = self.ocr_manager.stable_reading
             if stable_value_str.isdigit():
@@ -158,8 +159,6 @@ class CalibratorApp:
                 self.plot_data_sensor.append(int(temp_data['CO2']))
                 self.plot_data_ocr.append(self.last_ocr_value)
             
-            if all(k in line for k in ['PCB2_STATE', 'TEMP', 'CO2']):
-                self._log_sensor_data()
         except Exception as e:
             logging.warning(f"No se pudo parsear la trama '{line}': {e}")
 

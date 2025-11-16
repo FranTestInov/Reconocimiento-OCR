@@ -56,6 +56,7 @@ class OCRManager:
         if not text.isdigit(): return None
         if not (len(text) == 3 or len(text) == 4): return None
         if not text.endswith('0'): return None
+        #if not text < text+1500: return None
         return text
 
     def update_stable_reading(self):

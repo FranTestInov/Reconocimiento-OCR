@@ -99,9 +99,9 @@ class GuiManager:
             #Fin de depuración de imagen
            
         # --- row 2, col 0: Comandos del Sistema ---
-        system_commands_frame = ttk.LabelFrame(main_frame, text="Comandos Sistema", padding=2)
-        system_commands_frame.grid(row= 1, column=2, sticky="news", padx=2,pady=2) # Pasar a row 1 col 2
-        
+        system_commands_frame = ttk.LabelFrame(main_frame, text="Comandos Sistema", padding=10)
+        system_commands_frame.grid(row= 1, column=2, sticky="news", padx=5,pady=5) # Pasar a row 1 col 2
+                
         setpoint_frame = ttk.Frame(system_commands_frame)
         # ... (código de setpoint)
         setpoint_frame.pack(fill='x', pady=2)
@@ -124,7 +124,7 @@ class GuiManager:
         buttons_frame.pack(fill='x', pady=(10, 2))
         ttk.Button(buttons_frame, text="Apagar/Prender Cooler", command=lambda: self.app_callbacks["send_command"]("TOGGLE_COOLER")).pack(side='left', expand=True, fill='x', padx=2)
         ttk.Button(buttons_frame, text="Calibrar Sensor", command=lambda: self.app_callbacks["send_command"]("CALIBRATE_SENSOR")).pack(side='left', expand=True, fill='x', padx=2)
-        ttk.Button(buttons_frame, text="PÁNICO", command=lambda: self.app_callbacks["send_command"]("OPEN_ALL")).pack(side='left', expand=True, fill='x', padx=2)
+        ttk.Button(buttons_frame, text="Bajar Concentración", command=lambda: self.app_callbacks["send_command"]("OPEN_ALL")).pack(side='left', expand=True, fill='x', padx=2)
 
 
         # --- row 0, col 1 y 2: Grafico en Tiempo Real ---
@@ -145,7 +145,7 @@ class GuiManager:
         
         # --- row 2, col 2: Dashboard ---
         dashboard_frame = ttk.LabelFrame(main_frame, text="Dashboard", padding=10)
-        dashboard_frame.grid(row=1, column=1, rowspan=2, sticky="ew", padx=5, pady=5)
+        dashboard_frame.grid(row=1, column=1, rowspan=2, sticky="news", padx=5, pady=5)
         # --- Llenar Dashboard --- -> Crear funcion
         ttk.Label(dashboard_frame, text="Temperatura:").grid(row=0, column=0, sticky="w", pady=2)
         ttk.Label(dashboard_frame, textvariable=self.sensor_vars['TEMP']).grid(row=0, column=1, sticky="w", pady=2, padx=5)
