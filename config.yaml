@@ -27,7 +27,7 @@ detection:
   # Parámetros para la lógica de decisión estable
   validation_buffer:
     # Cantidad de lecturas válidas a almacenar para tomar una decisión.
-    size: 7
+    size: 10
     # Porcentaje de lecturas idénticas necesario para aceptar un valor como estable (0.6 = 60%).
     confidence_threshold: 0.7
 # Nombres para las ventanas de la interfaz gráfica

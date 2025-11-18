@@ -43,7 +43,7 @@ class CalibratorApp:
         self.last_ocr_value = 400
 
     def setup(self):
-        self.cap = cv2.VideoCapture(1)
+        self.cap = cv2.VideoCapture(0)
         if not self.cap.isOpened():
             logging.critical("No se puede abrir la cámara.")
             return False
@@ -134,33 +134,48 @@ class CalibratorApp:
                     self.last_ocr_value = int(stable_value_str)
                 
     def _process_serial_data(self):
-        line = self.serial_manager.read_line()
-        if not line: return
         
-        try:
-            temp_data = {}
-            for pair in line.split(';'):
-                if ':' in pair:
-                    key, value = pair.split(':', 1)
-                    if key in self.sensor_data:
-                        if key == 'PCB2_STATE':
-                            try:
-                                state_num = int(value)
-                                # Usamos .get() para obtener el nombre. Si no existe, devuelve 'UNKNOWN'.
-                                temp_data[key] = PCB2_STATE_MAP.get(state_num, 'UNKNOWN')
-                            except (ValueError, TypeError):
-                                temp_data[key] = 'INVALID_STATE' # Si el valor no es un número
-                        else:
-                            temp_data[key] = value
-                            
-            self.sensor_data.update(temp_data)
-
-            if 'CO2' in temp_data and temp_data['CO2'].isdigit():
-                self.plot_data_sensor.append(int(temp_data['CO2']))
-                self.plot_data_ocr.append(self.last_ocr_value)
+            line = self.serial_manager.read_line()
+            if not line: return
+    
+            # Diferenciamos entre tramas de datos (telemetría) y mensajes de log (eventos)
+            # Asumimos que la trama de telemetría SIEMPRE comienza con "PCB2_STATE:"
+            if line.startswith("PCB2_STATE:"):
+                try:
+                    # --- Es una Trama de Telemetría ---
+                    temp_data = {}
+                    for pair in line.split(';'):
+                        if ':' in pair:
+                            key, value = pair.split(':', 1)
+                            if key in self.sensor_data:
+                                if key == 'PCB2_STATE':
+                                    try:
+                                        state_num = int(value)
+                                        # Usamos .get() para obtener el nombre.
+                                        # Si no existe, devuelve 'UNKNOWN'.
+                                        temp_data[key] = PCB2_STATE_MAP.get(state_num, 'UNKNOWN')
+                                    except (ValueError, TypeError):
+                                        temp_data[key] = 'INVALID_STATE' # Si el valor no es un número
+                                else:
+                                    temp_data[key] = value
+                                    
+                    self.sensor_data.update(temp_data)
+    
+                    # Actualizamos los datos para el gráfico
+                    if 'CO2' in temp_data and temp_data['CO2'].isdigit():
+                        self.plot_data_sensor.append(int(temp_data['CO2']))
+                        self.plot_data_ocr.append(self.last_ocr_value)
+                    
+                except Exception as e:
+                    # Si falla el parseo de una trama que *parecía* telemetría, es un error
+                    logging.error(f"Error al parsear la trama de telemetría '{line}': {e}")
             
-        except Exception as e:
-            logging.warning(f"No se pudo parsear la trama '{line}': {e}")
+            elif line:
+                # --- Es un Mensaje de Evento/Log ---
+                # Si no es telemetría, es un mensaje de log/evento del ESP32
+                # Lo registramos en el log de eventos principal (calibrator.log)
+                # Usamos el logger raíz configurado en utils.py
+                logging.info(f"[ESP32-Cliente]: {line}")
 
             
     def _log_sensor_data(self):
